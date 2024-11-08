@@ -191,11 +191,11 @@ jobs:
           docker run --rm -v $PWD:/app -w /app \
             ghcr.io/mikopbx/modules-builder:latest bash -c '
             set -e  # Exit on error
-
+            
             # Read and encode changelog
             CHANGELOG=$(cat changelog.txt)
             CHANGELOG_URL_ENC=$(echo "$CHANGELOG" | jq -Rr @uri)
-
+            
             # Set module path and create share
             MODULE_PATH="/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/${{ env.module_filename }}"
             
@@ -242,7 +242,10 @@ jobs:
               echo "Error: Invalid JSON generated"
               cat release.json
               exit 1
-            fi'
+            fi
+            
+            echo "Debug: Generated JSON content:"
+            cat release.json'
 
       - name: Create release on update.mikopbx.com
         if: github.ref == 'refs/heads/master'
@@ -251,10 +254,14 @@ jobs:
           # Submit release to MikoPBX update server
           docker run --rm -v $PWD:/app -w /app \
             ghcr.io/mikopbx/modules-builder:latest bash -c '
-            set -e  # Exit on error
+            set -e # Exit on error
 
-            echo "Preparing release submission..."
-            
+            # Validate release.json exists
+            if [ ! -f "release.json" ]; then
+                echo "Error: release.json not found"
+                exit 1
+            fi
+
             # Generate request parameters
             REQUEST_TIME=$(date +%s)
             API_HASH=$(echo -n "${REQUEST_TIME}${{ secrets.MIKO_LIC_REST_VENDOR_ID }}${{ secrets.MIKO_LIC_REST_API_KEY }}" | sha512sum | cut -d" " -f1)
@@ -262,48 +269,29 @@ jobs:
             echo "Debug: Generated parameters:"
             echo "Request time: $REQUEST_TIME"
             echo "API Hash: $API_HASH"
-            
-            # Get required values
-            RELEASE_MD5=$(md5sum "${{ env.module_filename }}" | cut -d" " -f1)
-            RELEASE_SIZE=$(stat -c%s "${{ env.module_filename }}")
-            RELEASE_MINPBXVER=$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json || echo "")
-            RELEASE_LINK=$(jq -r .LINK release.json)
-            RELEASE_CHANGELOG=$(jq -r .CHANGELOG release.json)
-            
-            # Create temporary JSON file
-            cat > temp_release.json << EOF
-            {
-              "GUID": "${{ github.event.repository.name }}",
-              "VERSION": "${{ steps.calc_version.outputs.new_version }}",
-              "MD5": "$RELEASE_MD5",
-              "SIZE": "$RELEASE_SIZE",
-              "MINPBXVER": "$RELEASE_MINPBXVER",
-              "LINK": "$RELEASE_LINK",
-              "NAME": "${{ env.module_filename }}",
-              "RELEASENOW": "false",
-              "CHANGELOG": "$RELEASE_CHANGELOG"
-            }
-            EOF
-
-            echo "Debug: Request JSON content:"
-            cat temp_release.json
 
             echo "Submitting release to MikoPBX update server..."
             RESPONSE=$(curl -v -k \
-              -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
-              -H "API_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}" \
-              -H "API_TIME: $REQUEST_TIME" \
-              -H "API_HASH: $API_HASH" \
-              -H "Content-Type: application/json; charset=utf-8" \
-              -d @temp_release.json)
-
+                -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
+                -H "API_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}" \
+                -H "API_TIME: $REQUEST_TIME" \
+                -H "API_HASH: $API_HASH" \
+                -H "Content-Type: application/json; charset=utf-8" \
+                -d @release.json 2>&1)
+            
             echo "API Response:"
             echo "$RESPONSE"
-
+            
+            # Check for curl errors
+            if echo "$RESPONSE" | grep -q "curl:"; then
+                echo "Error: CURL failed"
+                exit 1
+            fi
+            
             # Check if request was successful
             if ! echo "$RESPONSE" | grep -q "success"; then
-              echo "Error: Failed to submit release"
-              exit 1
+                echo "Error: Failed to submit release"
+                exit 1
             fi
             
             echo "Release submission completed successfully"'
