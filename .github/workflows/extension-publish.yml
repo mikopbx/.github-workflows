@@ -182,15 +182,13 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" > changelog.txt
           
-      # Update the release JSON generation to use correct path
       - name: Generate release JSON
         if: github.ref == 'refs/heads/master'
         working-directory: module
         run: |
           # Create JSON with release information
           docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest bash -c '
-            set -e  # Exit on error
+            ghcr.io/mikopbx/modules-builder:latest bash -c 'set -e
             
             # Read and encode changelog
             CHANGELOG=$(cat changelog.txt)
@@ -221,31 +219,41 @@ jobs:
             # Get min PBX version
             MIN_PBX_VERSION=$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json || echo "")
             
-            # Create JSON using here-document for better formatting
-            cat > release.json << EOF
-            {
-              "GUID": "${{ github.event.repository.name }}",
-              "LINK": "$LINK_FULL",
-              "VERSION": "${{ steps.calc_version.outputs.new_version }}",
-              "MD5": "$MD5",
-              "SIZE": "$SIZE",
-              "MINPBXVER": "$MIN_PBX_VERSION",
-              "CHANGELOG": "$CHANGELOG_URL_ENC",
-              "RELEASENOW": "false",
-              "ORIGINALPATH": "$MODULE_PATH",
-              "NAME": "${{ env.module_filename }}"
-            }
-            EOF
-
+            # Create JSON using jq for better reliability
+            jq -n \
+              --arg guid "${{ github.event.repository.name }}" \
+              --arg link "$LINK_FULL" \
+              --arg version "${{ steps.calc_version.outputs.new_version }}" \
+              --arg md5 "$MD5" \
+              --arg size "$SIZE" \
+              --arg minver "$MIN_PBX_VERSION" \
+              --arg changelog "$CHANGELOG_URL_ENC" \
+              --arg origpath "$MODULE_PATH" \
+              --arg name "${{ env.module_filename }}" \
+              '\''
+              {
+                "GUID": $guid,
+                "LINK": $link,
+                "VERSION": $version,
+                "MD5": $md5,
+                "SIZE": $size,
+                "MINPBXVER": $minver,
+                "CHANGELOG": $changelog,
+                "RELEASENOW": "false",
+                "ORIGINALPATH": $origpath,
+                "NAME": $name
+              }
+              '\'' > release.json
+            
+            echo "Debug: Generated JSON content:"
+            cat release.json
+            
             # Validate JSON format
             if ! jq empty release.json; then
               echo "Error: Invalid JSON generated"
               cat release.json
               exit 1
-            fi
-            
-            echo "Debug: Generated JSON content:"
-            cat release.json'
+            fi'
 
       - name: Create release on update.mikopbx.com
         if: github.ref == 'refs/heads/master'
