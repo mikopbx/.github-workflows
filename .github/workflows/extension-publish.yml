@@ -42,17 +42,26 @@ jobs:
           repository: mikopbx/.github-workflows
           path: .github-workflows
 
-      - name: Get previous version
+      - name: Get latest release version
         id: get_version
         working-directory: module
         run: |
-          # Try to get the latest release version
-          LATEST_VERSION=$(gh release list -L 1 | cut -f1 | sed 's/v//' || echo "")
+          # Try to get the latest release version and clean it up
+          LATEST_RELEASE=$(gh release list -L 1 || echo "")
           
-          if [ -z "$LATEST_VERSION" ]; then
+          if [ -z "$LATEST_RELEASE" ]; then
             # If no releases found, use initial version
             echo "No previous releases found, using initial version"
             LATEST_VERSION="${{ inputs.initial_version }}"
+          else
+            # Extract version number from release name
+            # This will handle formats like "Release X.YY" or "vX.YY"
+            LATEST_VERSION=$(echo "$LATEST_RELEASE" | awk '{print $1}' | sed -E 's/^[^0-9]*([0-9]+\.[0-9]+).*$/\1/')
+            
+            if [ -z "$LATEST_VERSION" ] || ! echo "$LATEST_VERSION" | grep -qE '^[0-9]+\.[0-9]+$'; then
+              echo "Warning: Could not parse latest version, using initial version"
+              LATEST_VERSION="${{ inputs.initial_version }}"
+            fi
           fi
           
           echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
@@ -64,9 +73,16 @@ jobs:
         id: calc_version
         run: |
           LATEST_VERSION="${{ steps.get_version.outputs.latest_version }}"
+          echo "Starting version calculation from: $LATEST_VERSION"
           
           # Split version into major and minor parts
           IFS='.' read -r major minor <<< "$LATEST_VERSION"
+          
+          # Verify we got valid numbers
+          if ! [[ "$major" =~ ^[0-9]+$ ]] || ! [[ "$minor" =~ ^[0-9]+$ ]]; then
+            echo "Error: Invalid version format in $LATEST_VERSION"
+            exit 1
+          }
           
           # Increment minor version
           new_minor=$((minor + 1))
@@ -90,7 +106,7 @@ jobs:
             echo "Error: Major version mismatch with initial version"
             exit 1
           fi
-
+          
       - name: Build Docker image
         uses: ./.github-workflows/.github/actions/docker-build
 
