@@ -46,35 +46,8 @@ jobs:
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "new_version_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Cache Docker layers
-        uses: actions/cache@v3
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-            
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: .github/docker/Dockerfile
-          push: false
-          load: true
-          tags: mikopbx-modules-builder:latest
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-          
-      # Temp fix for https://github.com/docker/build-push-action/issues/252
-      # Prevents cache from growing infinitely
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-          
+      - name: Build Docker image
+        uses: ./.github/actions/docker-build    
       - name: Install Composer dependencies
         if: ${{ vars.USE_COMPOSER_DURING_MODULE_COMPILATION == 'true' }}
         run: |
