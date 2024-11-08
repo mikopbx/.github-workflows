@@ -26,7 +26,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+          
+      - name: Checkout Actions Repository
+        uses: actions/checkout@v4
+        with:
+          repository: mikopbx/.github-workflows
+          path: .github-workflows
+
       - name: Get previous version
         id: get_version
         run: |
@@ -47,17 +53,8 @@ jobs:
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "new_version_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ github.workspace }}
-          file: Dockerfile
-          push: false
-          load: true
-          tags: mikopbx-modules-builder:latest
+        uses: ./.github-workflows/.github/actions/docker-build
 
       - name: Install Composer dependencies
         if: ${{ vars.USE_COMPOSER_DURING_MODULE_COMPILATION == 'true' }}
