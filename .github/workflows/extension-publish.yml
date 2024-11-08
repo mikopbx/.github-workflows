@@ -48,31 +48,33 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
+      
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+            
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: .github/docker/Dockerfile
           push: false
           load: true
           tags: mikopbx-modules-builder:latest
-          dockerfile: |
-            FROM ubuntu:focal
-            
-            ENV DEBIAN_FRONTEND noninteractive
-            
-            RUN apt-get update && apt-get install -y \
-                libxml-xpath-perl \
-                php7.4 \
-                git \
-                curl \
-                jq \
-                zip
-            
-            RUN cd /tmp \
-                && php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
-                && php composer-setup.php --install-dir=/usr/local/bin --filename=composer
-
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          
+      # Temp fix for https://github.com/docker/build-push-action/issues/252
+      # Prevents cache from growing infinitely
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          
       - name: Install Composer dependencies
         if: ${{ vars.USE_COMPOSER_DURING_MODULE_COMPILATION == 'true' }}
         run: |
