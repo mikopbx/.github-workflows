@@ -263,10 +263,31 @@ jobs:
             echo "Request time: $REQUEST_TIME"
             echo "API Hash: $API_HASH"
             
-            # Get data from release.json for debug
-            echo "Debug: Current release.json content:"
-            cat release.json
+            # Get required values
+            RELEASE_MD5=$(md5sum "${{ env.module_filename }}" | cut -d" " -f1)
+            RELEASE_SIZE=$(stat -c%s "${{ env.module_filename }}")
+            RELEASE_MINPBXVER=$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json || echo "")
+            RELEASE_LINK=$(jq -r .LINK release.json)
+            RELEASE_CHANGELOG=$(jq -r .CHANGELOG release.json)
             
+            # Create temporary JSON file
+            cat > temp_release.json << EOF
+            {
+              "GUID": "${{ github.event.repository.name }}",
+              "VERSION": "${{ steps.calc_version.outputs.new_version }}",
+              "MD5": "$RELEASE_MD5",
+              "SIZE": "$RELEASE_SIZE",
+              "MINPBXVER": "$RELEASE_MINPBXVER",
+              "LINK": "$RELEASE_LINK",
+              "NAME": "${{ env.module_filename }}",
+              "RELEASENOW": "false",
+              "CHANGELOG": "$RELEASE_CHANGELOG"
+            }
+            EOF
+
+            echo "Debug: Request JSON content:"
+            cat temp_release.json
+
             echo "Submitting release to MikoPBX update server..."
             RESPONSE=$(curl -v -k \
               -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
@@ -274,22 +295,8 @@ jobs:
               -H "API_TIME: $REQUEST_TIME" \
               -H "API_HASH: $API_HASH" \
               -H "Content-Type: application/json; charset=utf-8" \
-              -d @<(cat <<EOF
-              {
-                "GUID": "${{ github.event.repository.name }}",
-                "VERSION": "${{ steps.calc_version.outputs.new_version }}",
-                "MD5": "$(md5sum "${{ env.module_filename }}" | cut -d" " -f1)",
-                "SIZE": "$(stat -c%s "${{ env.module_filename }}")",
-                "MINPBXVER": "$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json || echo "")",
-                "LINK": "$(jq -r .LINK release.json)",
-                "NAME": "${{ env.module_filename }}",
-                "RELEASENOW": "false",
-                "CHANGELOG": "$(jq -r .CHANGELOG release.json)"
-              }
-              EOF
-            ))
+              -d @temp_release.json)
 
-            # Print response for debugging
             echo "API Response:"
             echo "$RESPONSE"
 
