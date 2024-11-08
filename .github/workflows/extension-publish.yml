@@ -122,24 +122,35 @@ jobs:
             ghcr.io/mikopbx/modules-builder:latest \
             zip -r "$MODULE_RELEASE_FILENAME" ./*
           echo "module_filename=$MODULE_RELEASE_FILENAME" >> $GITHUB_ENV
-
+          
       - name: Create WebDAV directory
         if: github.ref == 'refs/heads/master'
         working-directory: module
         run: |
-          # Ensure WebDAV directory exists
+          # Ensure WebDAV directory exists for the module
+          # First create parent directory if not exists
           docker run --rm -v $PWD:/app -w /app \
             ghcr.io/mikopbx/modules-builder:latest \
-            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}${{ vars.WEBDAV_PLUGIN_DIRECTORY }}"
+            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}/update.miko.ru"
+
+          # Then create MikoPBXPlugins directory
+          docker run --rm -v $PWD:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest \
+            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}/update.miko.ru/MikoPBXPlugins"
+
+          # Finally create module-specific directory
+          docker run --rm -v $PWD:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest \
+            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}"
 
       - name: Upload to files.miko.ru
         if: github.ref == 'refs/heads/master'
         working-directory: module
         run: |
-          # Upload module archive to WebDAV storage
+          # Upload module archive to the module-specific directory
           docker run --rm -v $PWD:/app -w /app \
             ghcr.io/mikopbx/modules-builder:latest \
-            curl -u ${{ secrets.OWNCLOUD_AUTH }} -T ${{ env.module_filename }} "${{ secrets.WEBDAV_ROOT }}${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/"
+            curl -u ${{ secrets.OWNCLOUD_AUTH }} -T ${{ env.module_filename }} "${{ secrets.WEBDAV_ROOT }}/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/"
 
       - name: Generate changelog
         id: changelog
@@ -151,7 +162,8 @@ jobs:
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" > changelog.txt
-
+          
+      # Update the release JSON generation to use correct path
       - name: Generate release JSON
         if: github.ref == 'refs/heads/master'
         working-directory: module
@@ -161,7 +173,10 @@ jobs:
             ghcr.io/mikopbx/modules-builder:latest bash -c '
             CHANGELOG=$(cat changelog.txt)
             CHANGELOG_URL_ENC=$(echo "$CHANGELOG" | jq -Rr @uri)
-            LINK=$(curl "${{ secrets.SHARE_API_URL }}" -k -u ${{ secrets.OWNCLOUD_AUTH }} -X POST --data "path=${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/${{ env.module_filename }}&shareType=3" | xpath -e "/ocs/data/url/text()")
+
+            # Use the correct path for share creation
+            MODULE_PATH="/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/${{ env.module_filename }}"
+            LINK=$(curl "${{ secrets.SHARE_API_URL }}" -k -u ${{ secrets.OWNCLOUD_AUTH }} -X POST --data "path=$MODULE_PATH&shareType=3" | xpath -e "/ocs/data/url/text()")
             
             if [ -z "$LINK" ]; then
               echo "Error: Failed to get share link"
@@ -178,7 +193,7 @@ jobs:
               --arg size "$(stat -c%s "${{ env.module_filename }}")" \
               --arg minver "$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json)" \
               --arg changelog "$CHANGELOG_URL_ENC" \
-              --arg origpath "${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/${{ env.module_filename }}" \
+              --arg origpath "$MODULE_PATH" \
               --arg name "${{ env.module_filename }}" \
               '"{"GUID":$guid,"LINK":$link,"VERSION":$version,"MD5":$md5,"SIZE":$size,"MINPBXVER":$minver,"CHANGELOG":$changelog,"RELEASENOW":"false","ORIGINALPATH":$origpath,"NAME":$name}"' \
               > release.json'
