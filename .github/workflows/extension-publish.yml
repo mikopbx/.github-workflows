@@ -255,47 +255,51 @@ jobs:
 
             echo "Preparing release submission..."
             
-            # Generate hash
+            # Generate request parameters
             REQUEST_TIME=$(date +%s)
             API_HASH=$(echo -n "${REQUEST_TIME}${{ secrets.MIKO_LIC_REST_VENDOR_ID }}${{ secrets.MIKO_LIC_REST_API_KEY }}" | sha512sum | cut -d" " -f1)
             
+            echo "Debug: Generated parameters:"
             echo "Request time: $REQUEST_TIME"
-            echo "Debug: Checking release.json content:"
+            echo "API Hash: $API_HASH"
+            
+            # Get data from release.json for debug
+            echo "Debug: Current release.json content:"
             cat release.json
             
             echo "Submitting release to MikoPBX update server..."
-            RESPONSE=$(curl -k -s \
+            RESPONSE=$(curl -v -k \
               -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
               -H "API_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}" \
               -H "API_TIME: $REQUEST_TIME" \
               -H "API_HASH: $API_HASH" \
               -H "Content-Type: application/json; charset=utf-8" \
-              -w "\nHTTP_STATUS:%{http_code}" \
-              -d @release.json)
+              -d @<(cat <<EOF
+              {
+                "GUID": "${{ github.event.repository.name }}",
+                "VERSION": "${{ steps.calc_version.outputs.new_version }}",
+                "MD5": "$(md5sum "${{ env.module_filename }}" | cut -d" " -f1)",
+                "SIZE": "$(stat -c%s "${{ env.module_filename }}")",
+                "MINPBXVER": "$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json || echo "")",
+                "LINK": "$(jq -r .LINK release.json)",
+                "NAME": "${{ env.module_filename }}",
+                "RELEASENOW": "false",
+                "CHANGELOG": "$(jq -r .CHANGELOG release.json)"
+              }
+              EOF
+            ))
 
-            # Extract HTTP status code
-            HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d":" -f2)
-            # Extract response body (remove last line with status)
-            RESPONSE_BODY=$(echo "$RESPONSE" | sed "$d")
-            
-            echo "Response HTTP Status: $HTTP_STATUS"
-            echo "Response Body:"
-            echo "$RESPONSE_BODY"
-            
+            # Print response for debugging
+            echo "API Response:"
+            echo "$RESPONSE"
+
             # Check if request was successful
-            if [ "$HTTP_STATUS" -ne 200 ]; then
-              echo "Error: Failed to submit release. HTTP Status: $HTTP_STATUS"
+            if ! echo "$RESPONSE" | grep -q "success"; then
+              echo "Error: Failed to submit release"
               exit 1
             fi
             
-            # Try to parse response as JSON for additional validation
-            if ! echo "$RESPONSE_BODY" | jq empty; then
-              echo "Warning: Response is not valid JSON"
-            else
-              echo "Response validation successful"
-            fi
-            
-            echo "Release submission completed"'
+            echo "Release submission completed successfully"'
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/master'
