@@ -68,11 +68,28 @@ jobs:
           fi
         working-directory: module/src
 
-      - name: Update module version
+      - name: Debug directory structure
         run: |
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest \
-            sed -i "s/\"version\".*$/\"version\" : \"${{ steps.calc_version.outputs.new_version }}\",/" src/module.json
+          echo "Current directory: $PWD"
+          echo "Directory contents:"
+          ls -la
+          echo "Module directory contents:"
+          ls -la module || true
+          echo "Module src directory contents:"
+          ls -la module/src || true
+
+      - name: Update module version
         working-directory: module
+        run: |
+          echo "Current directory before version update: $PWD"
+          echo "Checking for module.json:"
+          find . -name module.json
+          
+          docker run --rm \
+            -v ${{ github.workspace }}/module:/app \
+            -w /app \
+            mikopbx-modules-builder:latest \
+            sed -i "s/\"version\".*$/\"version\" : \"${{ steps.calc_version.outputs.new_version }}\",/" src/module.json
 
       - name: Create module archive
         run: |
