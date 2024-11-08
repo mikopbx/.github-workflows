@@ -1,77 +1,100 @@
-name: Build and Publish
+# File: .github-workflows/.github/workflows/extension-publish.yml
+name: Extension Publish Workflow
 
 on:
-  push:
-    branches:
-      - master
-  workflow_dispatch:
+  workflow_call:
+    secrets:
+      OWNCLOUD_AUTH:
+        required: true
+      MIKO_LIC_REST_VENDOR_ID:
+        required: true
+      MIKO_LIC_REST_API_KEY:
+        required: true
+      MIKO_LIC_HOSTNAME:
+        required: true
+      WEBDAV_ROOT:
+        required: true
+      SHARE_API_URL:
+        required: true
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
+    
     steps:
-      # Сначала делаем checkout репозитория с actions
-      - name: Checkout Actions Repository
-        uses: actions/checkout@v4
-        with:
-          repository: mikopbx/.github-workflows
-          ref: main  # или master, в зависимости от вашей основной ветки
-          path: .github-workflows
-          
-      # Теперь делаем checkout основного репозитория
-      - name: Checkout Module Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          path: module
+      
+      - name: Get previous version
+        id: get_version
+        run: |
+          PREV_VERSION=$(gh release list -L 1 | cut -f1 | sed 's/v//' || echo "0.0.0")
+          if [ -z "$PREV_VERSION" ]; then
+            PREV_VERSION="0.0.0"
+          fi
+          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
 
-      # Используем docker-build action из скачанного репозитория
+      - name: Calculate new version
+        id: calc_version
+        run: |
+          IFS='.' read -r major minor patch <<< "${{ steps.get_version.outputs.prev_version }}"
+          new_patch=$((patch + 1))
+          NEW_VERSION="$major.$minor.$new_patch"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "new_version_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
-        uses: ./.github-workflows/.github/actions/docker-build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ github.workspace }}
+          file: Dockerfile
+          push: false
+          load: true
+          tags: mikopbx-modules-builder:latest
 
       - name: Install Composer dependencies
         if: ${{ vars.USE_COMPOSER_DURING_MODULE_COMPILATION == 'true' }}
-        working-directory: module/src
+        working-directory: src
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest \
+            docker run --rm -v ${{ github.workspace }}:/app -w /app mikopbx-modules-builder:latest \
               composer install --no-dev --ignore-platform-req=ext-curl --ignore-platform-req=ext-ldap \
               --ignore-platform-req=ext-phalcon --ignore-platform-req=ext-zip --ignore-platform-req=ext-mailparse
           fi
 
       - name: Update module version
-        working-directory: module
         run: |
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest \
+          docker run --rm -v ${{ github.workspace }}:/app -w /app mikopbx-modules-builder:latest \
             sed -i "s/\"version\".*$/\"version\" : \"${{ steps.calc_version.outputs.new_version }}\",/" src/module.json
 
-      # Остальные шаги также нужно обновить, учитывая новый путь module/
-      
       - name: Create module archive
-        working-directory: module
         run: |
           MODULE_RELEASE_FILENAME="${{ github.event.repository.name }}.${{ steps.calc_version.outputs.new_version }}.zip"
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app/src mikopbx-modules-builder:latest \
+          docker run --rm -v ${{ github.workspace }}:/app -w /app/src mikopbx-modules-builder:latest \
             zip -r "../$MODULE_RELEASE_FILENAME" ./*
           echo "module_filename=$MODULE_RELEASE_FILENAME" >> $GITHUB_ENV
 
       - name: Create WebDAV directory
         if: github.ref == 'refs/heads/master'
-        working-directory: module
         run: |
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest \
+          docker run --rm -v ${{ github.workspace }}:/app -w /app mikopbx-modules-builder:latest \
             curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}${{ vars.WEBDAV_PLUGIN_DIRECTORY }}"
 
       - name: Upload to files.miko.ru
         if: github.ref == 'refs/heads/master'
-        working-directory: module
         run: |
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest \
+          docker run --rm -v ${{ github.workspace }}:/app -w /app mikopbx-modules-builder:latest \
             curl -u ${{ secrets.OWNCLOUD_AUTH }} -T ${{ env.module_filename }} "${{ secrets.WEBDAV_ROOT }}${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/"
 
       - name: Generate changelog
         id: changelog
-        working-directory: module
         run: |
           CHANGELOG=$(git log $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD --pretty=format:"- %s")
           echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
@@ -81,9 +104,8 @@ jobs:
 
       - name: Generate release JSON
         if: github.ref == 'refs/heads/master'
-        working-directory: module
         run: |
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest bash -c '
+          docker run --rm -v ${{ github.workspace }}:/app -w /app mikopbx-modules-builder:latest bash -c '
             CHANGELOG=$(cat changelog.txt)
             CHANGELOG_URL_ENC=$(echo "$CHANGELOG" | jq -Rr @uri)
             LINK=$(curl "${{ secrets.SHARE_API_URL }}" -k -u ${{ secrets.OWNCLOUD_AUTH }} -X POST --data "path=${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/${{ env.module_filename }}&shareType=3" | xpath -e "/ocs/data/url/text()")
@@ -110,7 +132,6 @@ jobs:
 
       - name: Create release on update.mikopbx.com
         if: github.ref == 'refs/heads/master'
-        working-directory: module
         run: |
           REQUEST_TIME=$(date +%s)
           API_HASH=$(echo -n "${REQUEST_TIME}${{ secrets.MIKO_LIC_REST_VENDOR_ID }}${{ secrets.MIKO_LIC_REST_API_KEY }}" | sha512sum | cut -d' ' -f1)
@@ -123,8 +144,19 @@ jobs:
             -H 'Content-Type: application/json; charset=utf-8' \
             -d @release.json
 
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/master'
+        run: |
+          gh release create ${{ steps.calc_version.outputs.new_version_tag }} \
+            ${{ env.module_filename }} \
+            --title "Release ${{ steps.calc_version.outputs.new_version }}" \
+            --notes "${{ steps.changelog.outputs.CHANGELOG }}" \
+            --target ${{ github.sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.repository.name }}
-          path: module/${{ env.module_filename }}
+          path: ${{ env.module_filename }}
