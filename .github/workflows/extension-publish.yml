@@ -232,16 +232,51 @@ jobs:
           # Submit release to MikoPBX update server
           docker run --rm -v $PWD:/app -w /app \
             ghcr.io/mikopbx/modules-builder:latest bash -c '
+            set -e  # Exit on error
+
+            echo "Preparing release submission..."
+            
+            # Generate hash
             REQUEST_TIME=$(date +%s)
             API_HASH=$(echo -n "${REQUEST_TIME}${{ secrets.MIKO_LIC_REST_VENDOR_ID }}${{ secrets.MIKO_LIC_REST_API_KEY }}" | sha512sum | cut -d" " -f1)
             
-            curl -k -s \
+            echo "Request time: $REQUEST_TIME"
+            echo "Debug: Checking release.json content:"
+            cat release.json
+            
+            echo "Submitting release to MikoPBX update server..."
+            RESPONSE=$(curl -k -s \
               -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
               -H "API_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}" \
               -H "API_TIME: $REQUEST_TIME" \
               -H "API_HASH: $API_HASH" \
               -H "Content-Type: application/json; charset=utf-8" \
-              -d @release.json'
+              -w "\nHTTP_STATUS:%{http_code}" \
+              -d @release.json)
+
+            # Extract HTTP status code
+            HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d":" -f2)
+            # Extract response body (remove last line with status)
+            RESPONSE_BODY=$(echo "$RESPONSE" | sed "$d")
+            
+            echo "Response HTTP Status: $HTTP_STATUS"
+            echo "Response Body:"
+            echo "$RESPONSE_BODY"
+            
+            # Check if request was successful
+            if [ "$HTTP_STATUS" -ne 200 ]; then
+              echo "Error: Failed to submit release. HTTP Status: $HTTP_STATUS"
+              exit 1
+            fi
+            
+            # Try to parse response as JSON for additional validation
+            if ! echo "$RESPONSE_BODY" | jq empty; then
+              echo "Warning: Response is not valid JSON"
+            else
+              echo "Response validation successful"
+            fi
+            
+            echo "Release submission completed"'
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/master'
