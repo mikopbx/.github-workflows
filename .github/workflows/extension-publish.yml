@@ -82,7 +82,7 @@ jobs:
           if ! [[ "$major" =~ ^[0-9]+$ ]] || ! [[ "$minor" =~ ^[0-9]+$ ]]; then
             echo "Error: Invalid version format in $LATEST_VERSION"
             exit 1
-          }
+          fi
           
           # Increment minor version
           new_minor=$((minor + 1))
