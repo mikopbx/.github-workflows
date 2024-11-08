@@ -1,4 +1,3 @@
-# File: .github-workflows/.github/workflows/extension-publish.yml
 name: Extension Publish Workflow
 
 on:
@@ -17,6 +16,10 @@ on:
       SHARE_API_URL:
         required: true
 
+permissions:
+  contents: write     # Для создания релизов
+  packages: write     # Для работы с Container Registry
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
@@ -26,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          path: module  # Явно указываем путь для checkout модуля
+          path: module
 
       - name: Checkout Actions Repository
         uses: actions/checkout@v4
@@ -36,7 +39,7 @@ jobs:
 
       - name: Get previous version
         id: get_version
-        working-directory: module  # Указываем рабочую директорию
+        working-directory: module
         run: |
           PREV_VERSION=$(gh release list -L 1 | cut -f1 | sed 's/v//' || echo "0.0.0")
           if [ -z "$PREV_VERSION" ]; then
@@ -60,58 +63,46 @@ jobs:
 
       - name: Install Composer dependencies
         if: ${{ vars.USE_COMPOSER_DURING_MODULE_COMPILATION == 'true' }}
+        working-directory: module
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest \
+            docker run --rm -v $PWD:/app -w /app \
+              ghcr.io/mikopbx/modules-builder:latest \
               composer install --no-dev --ignore-platform-req=ext-curl --ignore-platform-req=ext-ldap \
               --ignore-platform-req=ext-phalcon --ignore-platform-req=ext-zip --ignore-platform-req=ext-mailparse
           fi
-        working-directory: module/src
-
-      - name: Debug directory structure
-        run: |
-          echo "Current directory: $PWD"
-          echo "Directory contents:"
-          ls -la
-          echo "Module directory contents:"
-          ls -la module || true
-          echo "Module src directory contents:"
-          ls -la module/src || true
 
       - name: Update module version
         working-directory: module
         run: |
-          echo "Current directory before version update: $PWD"
-          echo "Checking for module.json:"
-          find . -name module.json
-          
-          docker run --rm \
-            -v ${{ github.workspace }}/module:/app \
-            -w /app \
-            mikopbx-modules-builder:latest \
-            sed -i "s/\"version\".*$/\"version\" : \"${{ steps.calc_version.outputs.new_version }}\",/" src/module.json
+          docker run --rm -v $PWD:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest \
+            sed -i "s/\"version\".*$/\"version\" : \"${{ steps.calc_version.outputs.new_version }}\",/" module.json
 
       - name: Create module archive
+        working-directory: module
         run: |
           MODULE_RELEASE_FILENAME="${{ github.event.repository.name }}.${{ steps.calc_version.outputs.new_version }}.zip"
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app/src mikopbx-modules-builder:latest \
+          docker run --rm -v $PWD:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest \
             zip -r "../$MODULE_RELEASE_FILENAME" ./*
           echo "module_filename=$MODULE_RELEASE_FILENAME" >> $GITHUB_ENV
-        working-directory: module
 
       - name: Create WebDAV directory
         if: github.ref == 'refs/heads/master'
-        run: |
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest \
-            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}${{ vars.WEBDAV_PLUGIN_DIRECTORY }}"
         working-directory: module
+        run: |
+          docker run --rm -v $PWD:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest \
+            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}${{ vars.WEBDAV_PLUGIN_DIRECTORY }}"
 
       - name: Upload to files.miko.ru
         if: github.ref == 'refs/heads/master'
-        run: |
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest \
-            curl -u ${{ secrets.OWNCLOUD_AUTH }} -T ${{ env.module_filename }} "${{ secrets.WEBDAV_ROOT }}${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/"
         working-directory: module
+        run: |
+          docker run --rm -v $PWD:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest \
+            curl -u ${{ secrets.OWNCLOUD_AUTH }} -T ${{ env.module_filename }} "${{ secrets.WEBDAV_ROOT }}${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/"
 
       - name: Generate changelog
         id: changelog
@@ -127,7 +118,8 @@ jobs:
         if: github.ref == 'refs/heads/master'
         working-directory: module
         run: |
-          docker run --rm -v ${{ github.workspace }}/module:/app -w /app mikopbx-modules-builder:latest bash -c '
+          docker run --rm -v $PWD:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest bash -c '
             CHANGELOG=$(cat changelog.txt)
             CHANGELOG_URL_ENC=$(echo "$CHANGELOG" | jq -Rr @uri)
             LINK=$(curl "${{ secrets.SHARE_API_URL }}" -k -u ${{ secrets.OWNCLOUD_AUTH }} -X POST --data "path=${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/${{ env.module_filename }}&shareType=3" | xpath -e "/ocs/data/url/text()")
@@ -145,7 +137,7 @@ jobs:
               --arg version "${{ steps.calc_version.outputs.new_version }}" \
               --arg md5 "$(md5sum ${{ env.module_filename }} | cut -d" " -f1)" \
               --arg size "$(stat -c%s "${{ env.module_filename }}")" \
-              --arg minver "$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" src/module.json)" \
+              --arg minver "$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json)" \
               --arg changelog "$CHANGELOG_URL_ENC" \
               --arg origpath "${{ vars.WEBDAV_PLUGIN_DIRECTORY }}/${{ env.module_filename }}" \
               --arg name "${{ env.module_filename }}" \
@@ -156,16 +148,18 @@ jobs:
         if: github.ref == 'refs/heads/master'
         working-directory: module
         run: |
-          REQUEST_TIME=$(date +%s)
-          API_HASH=$(echo -n "${REQUEST_TIME}${{ secrets.MIKO_LIC_REST_VENDOR_ID }}${{ secrets.MIKO_LIC_REST_API_KEY }}" | sha512sum | cut -d' ' -f1)
-          
-          curl -k -s \
-            -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
-            -H "API_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}" \
-            -H "API_TIME: $REQUEST_TIME" \
-            -H "API_HASH: $API_HASH" \
-            -H 'Content-Type: application/json; charset=utf-8' \
-            -d @release.json
+          docker run --rm -v $PWD:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest bash -c '
+            REQUEST_TIME=$(date +%s)
+            API_HASH=$(echo -n "${REQUEST_TIME}${{ secrets.MIKO_LIC_REST_VENDOR_ID }}${{ secrets.MIKO_LIC_REST_API_KEY }}" | sha512sum | cut -d" " -f1)
+            
+            curl -k -s \
+              -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
+              -H "API_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}" \
+              -H "API_TIME: $REQUEST_TIME" \
+              -H "API_HASH: $API_HASH" \
+              -H "Content-Type: application/json; charset=utf-8" \
+              -d @release.json'
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/master'
