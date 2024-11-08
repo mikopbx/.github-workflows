@@ -171,32 +171,59 @@ jobs:
           # Create JSON with release information
           docker run --rm -v $PWD:/app -w /app \
             ghcr.io/mikopbx/modules-builder:latest bash -c '
+            set -e  # Exit on error
+
+            # Read and encode changelog
             CHANGELOG=$(cat changelog.txt)
             CHANGELOG_URL_ENC=$(echo "$CHANGELOG" | jq -Rr @uri)
 
-            # Use the correct path for share creation
+            # Set module path and create share
             MODULE_PATH="/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/${{ env.module_filename }}"
-            LINK=$(curl "${{ secrets.SHARE_API_URL }}" -k -u ${{ secrets.OWNCLOUD_AUTH }} -X POST --data "path=$MODULE_PATH&shareType=3" | xpath -e "/ocs/data/url/text()")
+            
+            # Request share link and store response for debugging
+            SHARE_RESPONSE=$(curl -s "${{ secrets.SHARE_API_URL }}" -k -u "${{ secrets.OWNCLOUD_AUTH }}" \
+              -X POST --data "path=$MODULE_PATH&shareType=3")
+            
+            # Extract URL using grep instead of xpath for better error handling
+            LINK=$(echo "$SHARE_RESPONSE" | grep -oP "(?<=<url>)[^<]+")
             
             if [ -z "$LINK" ]; then
               echo "Error: Failed to get share link"
+              echo "Share response: $SHARE_RESPONSE"
               exit 1
             fi
             
             LINK_FULL="$LINK/download"
             
-            jq -n \
-              --arg guid "${{ github.event.repository.name }}" \
-              --arg link "$LINK_FULL" \
-              --arg version "${{ steps.calc_version.outputs.new_version }}" \
-              --arg md5 "$(md5sum ${{ env.module_filename }} | cut -d" " -f1)" \
-              --arg size "$(stat -c%s "${{ env.module_filename }}")" \
-              --arg minver "$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json)" \
-              --arg changelog "$CHANGELOG_URL_ENC" \
-              --arg origpath "$MODULE_PATH" \
-              --arg name "${{ env.module_filename }}" \
-              '"{"GUID":$guid,"LINK":$link,"VERSION":$version,"MD5":$md5,"SIZE":$size,"MINPBXVER":$minver,"CHANGELOG":$changelog,"RELEASENOW":"false","ORIGINALPATH":$origpath,"NAME":$name}"' \
-              > release.json'
+            # Calculate MD5 and size
+            MD5=$(md5sum "${{ env.module_filename }}" | cut -d" " -f1)
+            SIZE=$(stat -c%s "${{ env.module_filename }}")
+            
+            # Get min PBX version
+            MIN_PBX_VERSION=$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json || echo "")
+            
+            # Create JSON using here-document for better formatting
+            cat > release.json << EOF
+            {
+              "GUID": "${{ github.event.repository.name }}",
+              "LINK": "$LINK_FULL",
+              "VERSION": "${{ steps.calc_version.outputs.new_version }}",
+              "MD5": "$MD5",
+              "SIZE": "$SIZE",
+              "MINPBXVER": "$MIN_PBX_VERSION",
+              "CHANGELOG": "$CHANGELOG_URL_ENC",
+              "RELEASENOW": "false",
+              "ORIGINALPATH": "$MODULE_PATH",
+              "NAME": "${{ env.module_filename }}"
+            }
+            EOF
+
+            # Validate JSON format
+            if ! jq empty release.json; then
+              echo "Error: Invalid JSON generated"
+              cat release.json
+              exit 1
+            fi'
 
       - name: Create release on update.mikopbx.com
         if: github.ref == 'refs/heads/master'
