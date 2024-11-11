@@ -1,0 +1,106 @@
+# .github/actions/publish/action.yml
+name: 'Publish Module'
+description: 'Publishes module to files.miko.ru and releases.mikopbx.com'
+
+inputs:
+  module_filename:
+    description: 'Module archive filename'
+    required: true
+  version:
+    description: 'Module version'
+    required: true
+  changelog:
+    description: 'Changelog content'
+    required: true
+
+secrets:
+  OWNCLOUD_AUTH:
+    required: true
+  WEBDAV_ROOT:
+    required: true
+  SHARE_API_URL:
+    required: true
+  MIKO_LIC_REST_VENDOR_ID:
+    required: true
+  MIKO_LIC_REST_API_KEY:
+    required: true
+  MIKO_LIC_HOSTNAME:
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    # Create WebDAV directories
+    - name: Create WebDAV directory structure
+      shell: bash
+      run: |
+        # Create directory structure on files.miko.ru
+        for DIR in "update.miko.ru" "update.miko.ru/MikoPBXPlugins" "update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}"; do
+          echo "Creating directory: $DIR"
+          docker run --rm -v $PWD/module:/app -w /app \
+            ghcr.io/mikopbx/modules-builder:latest \
+            curl -u "${{ secrets.OWNCLOUD_AUTH }}" -X MKCOL "${{ secrets.WEBDAV_ROOT }}/$DIR"
+        done
+
+    # Upload module archive
+    - name: Upload to files.miko.ru
+      shell: bash
+      run: |
+        docker run --rm -v $PWD/module:/app -w /app \
+          ghcr.io/mikopbx/modules-builder:latest \
+          curl -u "${{ secrets.OWNCLOUD_AUTH }}" -T "${{ inputs.module_filename }}" \
+          "${{ secrets.WEBDAV_ROOT }}/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/"
+
+    # Generate and publish release
+    - name: Generate and publish release
+      shell: bash
+      working-directory: module
+      run: |
+        # Create release JSON
+        docker run --rm -v $PWD:/app -w /app \
+          ghcr.io/mikopbx/modules-builder:latest bash -c '
+          set -e
+          
+          # Create share link
+          MODULE_PATH="/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/${{ inputs.module_filename }}"
+          SHARE_RESPONSE=$(curl -s "${{ secrets.SHARE_API_URL }}" -k -u "${{ secrets.OWNCLOUD_AUTH }}" \
+            -X POST --data "path=$MODULE_PATH&shareType=3")
+          
+          LINK=$(echo "$SHARE_RESPONSE" | grep -oP "(?<=<url>)[^<]+")
+          if [ -z "$LINK" ]; then
+            echo "Error: Failed to get share link"
+            echo "Share response: $SHARE_RESPONSE"
+            exit 1
+          fi
+          
+          # Generate release JSON
+          jq -n \
+            --arg guid "${{ github.event.repository.name }}" \
+            --arg link "$LINK/download" \
+            --arg version "${{ inputs.version }}" \
+            --arg md5 "$(md5sum "${{ inputs.module_filename }}" | cut -d" " -f1)" \
+            --arg size "$(stat -c%s "${{ inputs.module_filename }}")" \
+            --arg minver "$(jq -r .min_pbx_version module.json)" \
+            --arg changelog "${{ inputs.changelog }}" \
+            --arg origpath "$MODULE_PATH" \
+            --arg name "${{ inputs.module_filename }}" \
+            '\''{"GUID":$guid,"LINK":$link,"VERSION":$version,"MD5":$md5,"SIZE":$size,"MINPBXVER":$minver,"CHANGELOG":$changelog,"RELEASENOW":"false","ORIGINALPATH":$origpath,"NAME":$name}'\'' > release.json
+          
+          # Submit to MikoPBX update server
+          REQUEST_TIME=$(date +%s)
+          API_HASH=$(echo -n "${REQUEST_TIME}${{ secrets.MIKO_LIC_REST_VENDOR_ID }}${{ secrets.MIKO_LIC_REST_API_KEY }}" | sha512sum | cut -d" " -f1)
+          
+          RESPONSE=$(curl -v -k \
+            -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
+            -H "API_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}" \
+            -H "API_TIME: $REQUEST_TIME" \
+            -H "API_HASH: $API_HASH" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            -d @release.json 2>&1)
+          
+          echo "API Response: $RESPONSE"
+          
+          if ! echo "$RESPONSE" | grep -q "success"; then
+            echo "Error: Failed to submit release"
+            exit 1
+          fi'
