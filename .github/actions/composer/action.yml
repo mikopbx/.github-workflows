@@ -1,11 +1,9 @@
 name: 'Composer Dependencies'
 description: 'Manages Composer dependencies installation'
-
 inputs:
   php_version:
     description: 'PHP version to use'
     required: true
-
 runs:
   using: "composite"
   steps:
@@ -18,7 +16,6 @@ runs:
           echo "No composer.json found, skipping dependencies installation"
           exit 0
         fi
-
         echo "Installing Composer dependencies with PHP ${{ inputs.php_version }}..."
         
         # Create temporary composer.json without mikopbx/core
@@ -28,7 +25,7 @@ runs:
         echo "Modified composer.json content:"
         cat "$TMP_COMPOSER_FILE"
         
-        # Simplified composer install
+        # Install dependencies and generate autoloader
         docker run --rm \
           -v ${{ github.workspace }}/module:/app \
           -w /app \
@@ -36,6 +33,7 @@ runs:
           ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
           bash -c '
             git config --global --add safe.directory /app
+            # First install dependencies without autoloader
             composer install \
               --no-dev \
               --no-plugins \
@@ -43,8 +41,18 @@ runs:
               --prefer-dist \
               --no-progress \
               --no-autoloader \
-              --no-cache
+              --no-cache && \
+            # Then generate autoloader separately
+            composer dump-autoload \
+              --no-dev \
+              --classmap-authoritative
           '
         
         # Clean up
         rm "$TMP_COMPOSER_FILE"
+
+        # Verify autoloader was created
+        if [ ! -f "vendor/autoload.php" ]; then
+          echo "Error: autoload.php was not generated"
+          exit 1
+        fi
