@@ -28,28 +28,22 @@ runs:
         echo "Modified composer.json content:"
         cat "$TMP_COMPOSER_FILE"
         
-        # Run composer in a single Docker command to avoid multiple container startups
+        # Simplified composer install
         docker run --rm \
           -v ${{ github.workspace }}/module:/app \
           -w /app \
           -v "$TMP_COMPOSER_FILE:/app/composer.json" \
           ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
           bash -c '
-            # Configure git
             git config --global --add safe.directory /app
-            
-            # Install dependencies
             composer install \
               --no-dev \
               --no-plugins \
               --no-scripts \
               --prefer-dist \
               --no-progress \
-              --optimize-autoloader
-            
-            # Show PHP extensions
-            echo "Verifying installed PHP extensions:"
-            php -m
+              --no-autoloader \
+              --no-cache
           '
         
         # Clean up
