@@ -28,10 +28,6 @@ runs:
           -w /app \
           ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
           bash -c '
-            # Set correct permissions
-            chown -R root:root /app
-            chmod -R 755 /app
-            
             # Configure git
             git config --global --add safe.directory /app
             
