@@ -1,3 +1,4 @@
+# File: .github-workflows/.github/workflows/extension-publish.yml
 name: Extension Publish Workflow
 
 on:
@@ -29,43 +30,49 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repositories
-        uses: ./.github/actions/checkout
-      
-      # Validation steps
+      # First checkout both repositories
+      - name: Checkout module repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: module
+
+      - name: Checkout workflows repository
+        uses: actions/checkout@v4
+        with:
+          repository: mikopbx/.github-workflows
+          path: .github-workflows
+
+      # Now we can use local actions from the workflows repository
       - name: Validate module configuration
         id: validate
-        uses: ./.github/actions/validate
-      
-      # Version management
+        uses: ./.github-workflows/.github/actions/validate
+        
       - name: Manage versions
         id: version
-        uses: ./.github/actions/versioning
+        uses: ./.github-workflows/.github/actions/versioning
         with:
           initial_version: ${{ inputs.initial_version }}
-      
-      # Build environment
+
       - name: Setup build environment
-        uses: ./.github/actions/docker-build
-      
-      # Dependencies
+        uses: ./.github-workflows/.github/actions/docker-build
+
       - name: Handle dependencies
-        uses: ./.github/actions/composer
-      
-      # Create module archive
+        uses: ./.github-workflows/.github/actions/composer
+        with:
+          php_version: ${{ steps.validate.outputs.php_version }}
+
       - name: Create module package
         id: archive
-        uses: ./.github/actions/archive
+        uses: ./.github-workflows/.github/actions/archive
         with:
           version: ${{ steps.version.outputs.new_version }}
-      
-      # Generate changelog if enabled
+
       - name: Generate changelog
         id: changelog
         if: steps.validate.outputs.changelog_enabled == 'true'
-        uses: ./.github/actions/changelog
-      
-      # Publish to files.miko.ru if enabled
+        uses: ./.github-workflows/.github/actions/changelog
+
       - name: Publish module
         if: |
           github.ref == 'refs/heads/master' && 
@@ -77,16 +84,15 @@ jobs:
           MIKO_LIC_REST_VENDOR_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}
           MIKO_LIC_REST_API_KEY: ${{ secrets.MIKO_LIC_REST_API_KEY }}
           MIKO_LIC_HOSTNAME: ${{ secrets.MIKO_LIC_HOSTNAME }}
-        uses: ./.github/actions/publish
+        uses: ./.github-workflows/.github/actions/publish
         with:
           module_filename: ${{ steps.archive.outputs.filename }}
           version: ${{ steps.version.outputs.new_version }}
           changelog: ${{ steps.changelog.outputs.changelog }}
-      
-      # Create releases if enabled
-      - name: Create releases
+
+      - name: Manage GitHub releases
         if: steps.validate.outputs.create_github_release == 'true'
-        uses: ./.github/actions/release
+        uses: ./.github-workflows/.github/actions/release
         with:
           version: ${{ steps.version.outputs.new_version }}
           version_tag: ${{ steps.version.outputs.new_version_tag }}
