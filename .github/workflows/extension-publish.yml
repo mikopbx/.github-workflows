@@ -156,7 +156,7 @@ jobs:
         working-directory: module
         run: |
           if [ -f "composer.json" ]; then
-            echo "Installing Composer dependencies..."
+            echo "Installing Composer dependencies with PHP ${{ steps.php_version.outputs.php_version }}..."
             
             # Create temporary composer.json without mikopbx/core
             TMP_COMPOSER_FILE=$(mktemp)
@@ -165,19 +165,30 @@ jobs:
             echo "Modified composer.json content:"
             cat "$TMP_COMPOSER_FILE"
             
+            # Fix git ownership issue
+            docker run --rm -v $PWD:/app -w /app \
+              ghcr.io/mikopbx/modules-builder-php${{ steps.php_version.outputs.php_version }}:latest \
+              git config --global --add safe.directory /app
+            
             # Install dependencies using modified composer.json
             docker run --rm -v $PWD:/app -w /app \
               -v "$TMP_COMPOSER_FILE:/app/composer.json" \
-              ghcr.io/mikopbx/modules-builder:latest \
-              composer install --no-dev \
-                --ignore-platform-req=ext-curl \
-                --ignore-platform-req=ext-ldap \
-                --ignore-platform-req=ext-phalcon \
-                --ignore-platform-req=ext-zip \
-                --ignore-platform-req=ext-mailparse
+              ghcr.io/mikopbx/modules-builder-php${{ steps.php_version.outputs.php_version }}:latest \
+              composer install \
+                --no-dev \
+                --no-plugins \
+                --no-scripts \
+                --prefer-dist \
+                --no-progress \
+                --optimize-autoloader
             
             # Clean up
             rm "$TMP_COMPOSER_FILE"
+            
+            # Verify installed extensions
+            docker run --rm -v $PWD:/app -w /app \
+              ghcr.io/mikopbx/modules-builder-php${{ steps.php_version.outputs.php_version }}:latest \
+              php -m
           else
             echo "No composer.json found, skipping dependencies installation"
           fi
