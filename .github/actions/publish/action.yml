@@ -14,7 +14,7 @@ inputs:
   php_version:
     description: 'PHP version to use (7.4 or 8.3)'
     required: true
-    default: '7.4'  
+    default: '7.4'
 
 runs:
   using: "composite"
@@ -33,8 +33,23 @@ runs:
             ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
             curl -u "$OWNCLOUD_AUTH" -X MKCOL "$WEBDAV_ROOT/$DIR"
         done
-        
-   - name: Generate release JSON
+
+    # Upload module archive
+    - name: Upload to files.miko.ru
+      shell: bash
+      env:
+        OWNCLOUD_AUTH: ${{ env.OWNCLOUD_AUTH }}
+        WEBDAV_ROOT: ${{ env.WEBDAV_ROOT }}
+      working-directory: ${{ github.workspace }}/module
+      run: |
+        echo "Uploading module archive to files.miko.ru..."
+        docker run --rm -v $PWD:/app -w /app \
+          ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
+          curl -u "$OWNCLOUD_AUTH" -T "${{ inputs.module_filename }}" \
+          "$WEBDAV_ROOT/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/"
+
+    # Generate release JSON
+    - name: Generate release JSON
       shell: bash
       env:
         OWNCLOUD_AUTH: ${{ env.OWNCLOUD_AUTH }}
@@ -106,6 +121,7 @@ runs:
           exit 1
         fi
 
+    # Submit to MikoPBX Release Server
     - name: Submit to MikoPBX Release Server
       shell: bash
       env:
@@ -153,4 +169,4 @@ runs:
           exit 1
         fi
         
-        echo "Release submission completed successfully"     
+        echo "Release submission completed successfully"
