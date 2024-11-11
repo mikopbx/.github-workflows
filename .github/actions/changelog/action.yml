@@ -1,0 +1,41 @@
+name: 'Generate Changelog'
+description: 'Generates changelog from git commits'
+
+outputs:
+  changelog:
+    description: 'Generated changelog'
+    value: ${{ steps.generate_changelog.outputs.CHANGELOG }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Generate changelog
+      id: generate_changelog
+      shell: bash
+      run: |
+        cd module
+        
+        # Get last tag or initial commit
+        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+        
+        echo "Generating changelog since: $LAST_TAG"
+        
+        # Generate changelog from commits
+        CHANGELOG=$(git log "$LAST_TAG"..HEAD --pretty=format:"- %s")
+        
+        # If no changelog, provide default message
+        if [ -z "$CHANGELOG" ]; then
+          CHANGELOG="- No significant changes"
+        fi
+        
+        # Save to outputs and file
+        {
+          echo "CHANGELOG<<EOF"
+          echo "$CHANGELOG"
+          echo "EOF"
+        } >> $GITHUB_OUTPUT
+        
+        echo "$CHANGELOG" > changelog.txt
+        
+        echo "Generated changelog:"
+        echo "$CHANGELOG"
