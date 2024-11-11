@@ -81,7 +81,5 @@ RUN cd /tmp \
     && php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
     && rm composer-setup.php
 
-# Configure PHP
-RUN echo "extension=phalcon.so" > /etc/php/8.3/cli/conf.d/30-phalcon.ini
 
 WORKDIR /app
