@@ -1,0 +1,97 @@
+name: 'Manage GitHub Releases'
+description: 'Creates and manages GitHub releases for both production and development builds'
+
+inputs:
+  version:
+    description: 'Release version'
+    required: true
+  version_tag:
+    description: 'Release version tag'
+    required: true
+  module_filename:
+    description: 'Module archive filename'
+    required: true
+  changelog:
+    description: 'Changelog content'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Manage GitHub Releases
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        cd module
+        
+        # Function to create a new release with proper formatting
+        create_release() {
+          local prerelease=$1
+          local tag="${{ inputs.version_tag }}"
+          local title
+          local notes="${{ inputs.changelog }}"
+          local extra_args=""
+          
+          # Format release title based on branch
+          if [ "$prerelease" = "true" ]; then
+            title="Development Build ${{ inputs.version }}"
+            extra_args="--prerelease"
+            echo "Creating development release: $title"
+          else
+            title="Release ${{ inputs.version }}"
+            echo "Creating production release: $title"
+          fi
+          
+          # Create release with appropriate settings
+          gh release create "$tag" \
+            "${{ inputs.module_filename }}" \
+            --title "$title" \
+            --notes "$notes" \
+            --target ${{ github.sha }} \
+            $extra_args
+          
+          echo "Release created successfully: $title"
+        }
+        
+        # Function to cleanup old development releases
+        cleanup_old_releases() {
+          echo "Cleaning up old development releases..."
+          
+          # Get list of prerelease tags, sorted by creation date
+          # Keep only the last 5 development releases
+          OLD_RELEASES=$(gh release list \
+            --limit 999 \
+            --exclude-drafts \
+            | grep "Pre-release" \
+            | awk '{print $1}' \
+            | tail -n +6)
+          
+          if [ -n "$OLD_RELEASES" ]; then
+            echo "Found old releases to cleanup:"
+            echo "$OLD_RELEASES"
+            
+            # Delete old releases
+            for tag in $OLD_RELEASES; do
+              echo "Deleting old development release: $tag"
+              gh release delete "$tag" --yes || true
+              git push --delete origin "$tag" || true
+            done
+          else
+            echo "No old development releases to cleanup"
+          fi
+        }
+        
+        # Main release logic based on branch
+        if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+          echo "Processing development release..."
+          create_release true
+          cleanup_old_releases
+          
+        elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+          echo "Processing production release..."
+          create_release false
+          
+        else
+          echo "Skipping release creation for branch: ${{ github.ref }}"
+        fi
