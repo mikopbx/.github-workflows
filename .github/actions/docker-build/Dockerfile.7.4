@@ -1,0 +1,48 @@
+FROM ubuntu:focal
+
+ENV DEBIAN_FRONTEND noninteractive
+
+# Install basic requirements
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxml-xpath-perl \
+    software-properties-common \
+    gnupg \
+    git \
+    curl \
+    jq \
+    zip \
+    ca-certificates \
+    apt-transport-https
+
+# Add Phalcon 4.x repository
+RUN curl -s https://packagecloud.io/install/repositories/phalcon/stable/script.deb.sh | bash
+
+# Install PHP 7.4 and Phalcon 4
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    php7.4 \
+    php7.4-cli \
+    php7.4-common \
+    php7.4-curl \
+    php7.4-zip \
+    php7.4-mbstring \
+    php7.4-xml \
+    php7.4-intl \
+    php7.4-mysql \
+    php7.4-psr \
+    php7.4-dev \
+    php7.4-phalcon \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify Phalcon installation
+RUN php -m | grep -i phalcon
+
+# Install Composer
+RUN cd /tmp \
+    && php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
+    && php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
+    && rm composer-setup.php
+
+# Configure PHP
+RUN echo "extension=phalcon.so" > /etc/php/7.4/cli/conf.d/30-phalcon.ini
+
+WORKDIR /app
