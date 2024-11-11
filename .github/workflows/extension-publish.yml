@@ -56,6 +56,8 @@ jobs:
 
       - name: Setup build environment
         uses: ./.github-workflows/.github/actions/docker-build
+        with:
+          php_version: ${{ steps.validate.outputs.php_version }}
 
       - name: Handle dependencies
         uses: ./.github-workflows/.github/actions/composer
@@ -86,6 +88,7 @@ jobs:
           MIKO_LIC_HOSTNAME: ${{ secrets.MIKO_LIC_HOSTNAME }}
         uses: ./.github-workflows/.github/actions/publish
         with:
+          php_version: ${{ steps.validate.outputs.php_version }}
           module_filename: ${{ steps.archive.outputs.filename }}
           version: ${{ steps.version.outputs.new_version }}
           changelog: ${{ steps.changelog.outputs.changelog }}
