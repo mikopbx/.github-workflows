@@ -1,0 +1,138 @@
+# .github/actions/mikopbx-release/action.yml
+name: 'Publish to MikoPBX Release Server'
+description: 'Generates release JSON and publishes it to releases.mikopbx.com'
+
+inputs:
+  module_filename:
+    description: 'Module archive filename'
+    required: true
+  version:
+    description: 'Module version'
+    required: true
+  changelog:
+    description: 'Changelog content'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Generate release JSON
+      shell: bash
+      env:
+        OWNCLOUD_AUTH: ${{ env.OWNCLOUD_AUTH }}
+        SHARE_API_URL: ${{ env.SHARE_API_URL }}
+      working-directory: ${{ github.workspace }}/module
+      run: |
+        echo "Generating release JSON..."
+        
+        # Read and encode changelog
+        CHANGELOG="${{ inputs.changelog }}"
+        CHANGELOG_URL_ENC=$(echo "$CHANGELOG" | jq -Rr @uri)
+        
+        # Set module path and create share
+        MODULE_PATH="/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/${{ inputs.module_filename }}"
+        
+        # Request share link
+        SHARE_RESPONSE=$(curl -s "$SHARE_API_URL" -k -u "$OWNCLOUD_AUTH" \
+          -X POST --data "path=$MODULE_PATH&shareType=3")
+        
+        # Extract URL using grep
+        LINK=$(echo "$SHARE_RESPONSE" | grep -oP "(?<=<url>)[^<]+")
+        
+        if [ -z "$LINK" ]; then
+          echo "Error: Failed to get share link"
+          echo "Share response: $SHARE_RESPONSE"
+          exit 1
+        fi
+        
+        LINK_FULL="$LINK/download"
+        
+        # Calculate MD5 and size
+        MD5=$(md5sum "${{ inputs.module_filename }}" | cut -d" " -f1)
+        SIZE=$(stat -c%s "${{ inputs.module_filename }}")
+        
+        # Get min PBX version
+        MIN_PBX_VERSION=$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json || echo "")
+        
+        # Create JSON using jq
+        jq -n \
+          --arg guid "${{ github.event.repository.name }}" \
+          --arg link "$LINK_FULL" \
+          --arg version "${{ inputs.version }}" \
+          --arg md5 "$MD5" \
+          --arg size "$SIZE" \
+          --arg minver "$MIN_PBX_VERSION" \
+          --arg changelog "$CHANGELOG_URL_ENC" \
+          --arg origpath "$MODULE_PATH" \
+          --arg name "${{ inputs.module_filename }}" \
+          '{
+            "GUID": $guid,
+            "LINK": $link,
+            "VERSION": $version,
+            "MD5": $md5,
+            "SIZE": $size,
+            "MINPBXVER": $minver,
+            "CHANGELOG": $changelog,
+            "RELEASENOW": "false",
+            "ORIGINALPATH": $origpath,
+            "NAME": $name
+          }' > release.json
+        
+        echo "Debug: Generated JSON content:"
+        cat release.json
+        
+        # Validate JSON format
+        if ! jq empty release.json; then
+          echo "Error: Invalid JSON generated"
+          cat release.json
+          exit 1
+        fi
+
+    - name: Submit to MikoPBX Release Server
+      shell: bash
+      env:
+        MIKO_LIC_HOSTNAME: ${{ env.MIKO_LIC_HOSTNAME }}
+        MIKO_LIC_REST_VENDOR_ID: ${{ env.MIKO_LIC_REST_VENDOR_ID }}
+        MIKO_LIC_REST_API_KEY: ${{ env.MIKO_LIC_REST_API_KEY }}
+      working-directory: ${{ github.workspace }}/module
+      run: |
+        echo "Submitting release to MikoPBX update server..."
+        
+        # Validate release.json exists
+        if [ ! -f "release.json" ]; then
+          echo "Error: release.json not found"
+          exit 1
+        fi
+        
+        # Generate request parameters
+        REQUEST_TIME=$(date +%s)
+        API_HASH=$(echo -n "${REQUEST_TIME}${MIKO_LIC_REST_VENDOR_ID}${MIKO_LIC_REST_API_KEY}" | sha512sum | cut -d" " -f1)
+        
+        echo "Debug: Generated parameters:"
+        echo "Request time: $REQUEST_TIME"
+        echo "API Hash: $API_HASH"
+        
+        # Submit release
+        RESPONSE=$(curl -v -k \
+          -X POST "$MIKO_LIC_HOSTNAME/restapi/v1/addNewRelease" \
+          -H "API_ID: $MIKO_LIC_REST_VENDOR_ID" \
+          -H "API_TIME: $REQUEST_TIME" \
+          -H "API_HASH: $API_HASH" \
+          -H "Content-Type: application/json; charset=utf-8" \
+          -d @release.json 2>&1)
+        
+        echo "API Response:"
+        echo "$RESPONSE"
+        
+        # Check for errors
+        if echo "$RESPONSE" | grep -q "curl:"; then
+          echo "Error: CURL failed"
+          exit 1
+        fi
+        
+        if ! echo "$RESPONSE" | grep -q "success"; then
+          echo "Error: Failed to submit release"
+          exit 1
+        fi
+        
+        echo "Release submission completed successfully"
