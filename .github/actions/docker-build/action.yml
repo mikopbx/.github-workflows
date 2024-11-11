@@ -28,8 +28,6 @@ runs:
         push: true
         tags: |
           ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest
-          ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:${{ github.sha }}
         cache-from: |
           type=registry,ref=ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest
-          type=registry,ref=ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:buildcache
         cache-to: type=registry,ref=ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:buildcache,mode=max
