@@ -47,8 +47,7 @@ runs:
             
             # Generate simple autoloader
             composer dump-autoload \
-              --no-dev \
-              --optimize
+              --no-dev
           '
         
         # Clean up
