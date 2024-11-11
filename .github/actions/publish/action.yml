@@ -11,6 +11,10 @@ inputs:
   changelog:
     description: 'Changelog content'
     required: true
+  php_version:
+    description: 'PHP version to use (7.4 or 8.3)'
+    required: true
+    default: '7.4'  
 
 runs:
   using: "composite"
