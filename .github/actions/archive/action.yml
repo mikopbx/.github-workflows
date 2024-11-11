@@ -38,5 +38,3 @@ runs:
           echo "Error: Failed to create module archive"
           exit 1
         fi
-        
-        echo "Archive size: $(stat -f%z "$MODULE_RELEASE_FILENAME") bytes"
