@@ -1,0 +1,19 @@
+name: 'Checkout Repositories'
+description: 'Checks out module and workflow repositories'
+
+runs:
+  using: "composite"
+  steps:
+    # Checkout module repository
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for changelog
+        path: module
+
+    # Checkout workflows repository
+    - name: Checkout Actions Repository
+      uses: actions/checkout@v4
+      with:
+        repository: mikopbx/.github-workflows
+        path: .github-workflows
