@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN add-apt-repository ppa:ondrej/php && \
     curl -s https://packagecloud.io/install/repositories/phalcon/stable/script.deb.sh | bash
 
-# Install PHP 8.3 and dependencies for Phalcon
+# Install PHP 8.3 and all required extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     php8.3 \
     php8.3-cli \
@@ -33,10 +33,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php8.3-psr \
     php8.3-dev \
     php8.3-phalcon \
+    php8.3-ldap \
+    php8.3-mailparse \
+    php8.3-opcache \
+    php8.3-readline \
+    php8.3-soap \
+    php8.3-bcmath \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify Phalcon installation
-RUN php -m | grep -i phalcon
+# Verify PHP extensions
+RUN php -m
 
 # Install Composer
 RUN cd /tmp \
