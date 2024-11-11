@@ -55,13 +55,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php7.4-random \
     php7.4-redis \
     php7.4-reflection \
-    php7.4-session \
     php7.4-shmop \
     php7.4-simplexml \
     php7.4-sockets \
-    php7.4-spl \
+    php7.4-gd \
     php7.4-sqlite3 \
-    php7.4-standard \
     php7.4-tokenizer \
     php7.4-xdebug \
     php7.4-xml \
@@ -69,7 +67,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php7.4-xmlwriter \
     php7.4-yaml \
     php7.4-zip \
-    php7.4-zlib \
     && rm -rf /var/lib/apt/lists/*
 
 # Verify PHP extensions
