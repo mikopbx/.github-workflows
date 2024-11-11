@@ -15,6 +15,7 @@ runs:
   using: "composite"
   steps:
     - name: Create module archive
+      working-directory: ${{ github.workspace }}/module
       id: create_archive
       shell: bash
       run: |
