@@ -1,0 +1,53 @@
+name: 'Validate Module Configuration'
+description: 'Validates module.json and extracts settings'
+
+outputs:
+  publish_release:
+    description: 'Whether to publish release'
+    value: ${{ steps.settings.outputs.publish_release }}
+  changelog_enabled:
+    description: 'Whether changelog is enabled'
+    value: ${{ steps.settings.outputs.changelog_enabled }}
+  create_github_release:
+    description: 'Whether to create GitHub release'
+    value: ${{ steps.settings.outputs.create_github_release }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate PBX version
+      shell: bash
+      run: |
+        MIN_PBX_VERSION=$(jq -r .min_pbx_version module.json)
+        if [ -z "$MIN_PBX_VERSION" ] || [ "$MIN_PBX_VERSION" = "null" ]; then
+          echo "Error: min_pbx_version not specified in module.json"
+          exit 1
+        fi
+        echo "Minimum PBX version requirement: $MIN_PBX_VERSION"
+
+    - name: Validate required fields
+      shell: bash
+      run: |
+        REQUIRED_FIELDS=("developer" "moduleUniqueID" "support_email")
+        for field in "${REQUIRED_FIELDS[@]}"; do
+          value=$(jq -r ".$field" module.json)
+          if [ -z "$value" ] || [ "$value" = "null" ]; then
+            echo "Error: Required field '$field' is missing or empty in module.json"
+            exit 1
+          fi
+        done
+
+    - name: Read module settings
+      id: settings
+      shell: bash
+      run: |
+        echo "Reading module settings..."
+        SETTINGS=$(jq -r '{
+          publish_release: .release_settings.publish_release,
+          changelog_enabled: .release_settings.changelog_enabled,
+          create_github_release: .release_settings.create_github_release
+        }' module.json)
+        
+        echo "publish_release=$(echo $SETTINGS | jq -r .publish_release)" >> $GITHUB_OUTPUT
+        echo "changelog_enabled=$(echo $SETTINGS | jq -r .changelog_enabled)" >> $GITHUB_OUTPUT
+        echo "create_github_release=$(echo $SETTINGS | jq -r .create_github_release)" >> $GITHUB_OUTPUT
