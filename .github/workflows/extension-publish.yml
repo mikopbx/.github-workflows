@@ -91,7 +91,7 @@ jobs:
           php_version: ${{ steps.validate.outputs.php_version }}
           module_filename: ${{ steps.archive.outputs.filename }}
           version: ${{ steps.version.outputs.new_version }}
-          changelog: ${{ steps.changelog.outputs.changelog }}
+          changelog: ${{ steps.changelog.outputs.changelog }}       
 
       - name: Manage GitHub releases
         if: steps.validate.outputs.create_github_release == 'true'
