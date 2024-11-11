@@ -22,419 +22,73 @@ on:
         required: true
 
 permissions:
-  contents: write     # For creating releases
-  packages: write     # For working with Container Registry
+  contents: write
+  packages: write
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout repositories
+        uses: ./.github/actions/checkout
+      
+      # Validation steps
+      - name: Validate module configuration
+        id: validate
+        uses: ./.github/actions/validate
+      
+      # Version management
+      - name: Manage versions
+        id: version
+        uses: ./.github/actions/versioning
         with:
-          fetch-depth: 0  # Full history for changelog
-          path: module
-
-      - name: Checkout Actions Repository
-        uses: actions/checkout@v4
+          initial_version: ${{ inputs.initial_version }}
+      
+      # Build environment
+      - name: Setup build environment
+        uses: ./.github/actions/docker-build
+      
+      # Dependencies
+      - name: Handle dependencies
+        uses: ./.github/actions/composer
+      
+      # Create module archive
+      - name: Create module package
+        id: archive
+        uses: ./.github/actions/archive
         with:
-          repository: mikopbx/.github-workflows
-          path: .github-workflows
-
-      - name: Validate PBX version
-        working-directory: module
-        run: |
-          MIN_PBX_VERSION=$(jq -r .min_pbx_version module.json)
-          if [ -z "$MIN_PBX_VERSION" ] || [ "$MIN_PBX_VERSION" = "null" ]; then
-            echo "Error: min_pbx_version not specified in module.json"
-            exit 1
-          fi
-          echo "Minimum PBX version requirement: $MIN_PBX_VERSION"
-      - name: Validate module metadata
-        working-directory: module
-        run: |
-          REQUIRED_FIELDS=("developer" "moduleUniqueID" "support_email")
-          for field in "${REQUIRED_FIELDS[@]}"; do
-            value=$(jq -r ".$field" module.json)
-            if [ -z "$value" ] || [ "$value" = "null" ]; then
-              echo "Error: Required field '$field' is missing or empty in module.json"
-              exit 1
-            fi
-          done
-      - name: Read module settings
-        id: module_settings
-        working-directory: module
-        run: |
-          echo "Reading module settings..."
-          # Parse module.json and extract settings
-          SETTINGS=$(jq -r '{
-            publish_release: .release_settings.publish_release,
-            changelog_enabled: .release_settings.changelog_enabled,
-            create_github_release: .release_settings.create_github_release
-          }' module.json)
-          
-          # Export settings as outputs
-          echo "publish_release=$(echo $SETTINGS | jq -r .publish_release)" >> $GITHUB_OUTPUT
-          echo "changelog_enabled=$(echo $SETTINGS | jq -r .changelog_enabled)" >> $GITHUB_OUTPUT
-          echo "create_github_release=$(echo $SETTINGS | jq -r .create_github_release)" >> $GITHUB_OUTPUT
-          
-          echo "Module settings loaded:"
-          echo "$SETTINGS"    
-      - name: Get latest release version
-        id: get_version
-        working-directory: module
-        run: |
-          echo "Trying to get latest release..."
-          
-          # Try to get latest release tag directly
-          LATEST_TAG=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name 2>/dev/null || echo "")
-          echo "Latest release tag from API: $LATEST_TAG"
-          
-          if [ -z "$LATEST_TAG" ]; then
-            echo "No releases found via API, using initial version"
-            LATEST_VERSION="${{ inputs.initial_version }}"
-          else
-            # Remove 'v' prefix if present
-            LATEST_VERSION=$(echo "$LATEST_TAG" | sed 's/^v//')
-            echo "Extracted version: $LATEST_VERSION"
-            
-            # Validate version format
-            if ! echo "$LATEST_VERSION" | grep -qE '^[0-9]+\.[0-9]+$'; then
-              echo "Warning: Invalid version format, using initial version"
-              LATEST_VERSION="${{ inputs.initial_version }}"
-            fi
-          fi
-          
-          echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-          echo "Final version determined: $LATEST_VERSION"
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Calculate new version
-        id: calc_version
-        run: |
-          LATEST_VERSION="${{ steps.get_version.outputs.latest_version }}"
-          echo "Starting version calculation from: $LATEST_VERSION"
-          
-          # Split version into major and minor parts
-          IFS='.' read -r major minor <<< "$LATEST_VERSION"
-          
-          # Verify we got valid numbers
-          if ! [[ "$major" =~ ^[0-9]+$ ]] || ! [[ "$minor" =~ ^[0-9]+$ ]]; then
-            echo "Error: Invalid version format in $LATEST_VERSION"
-            exit 1
-          fi
-          
-          # Increment minor version
-          new_minor=$((minor + 1))
-          
-          # Create new version string
-          NEW_VERSION="$major.$new_minor"
-          
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "new_version_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "Calculated new version: $NEW_VERSION (from $LATEST_VERSION)"
-          
-          # Validate version format
-          if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+$'; then
-            echo "Error: Invalid version format generated"
-            exit 1
-          fi
-          
-          # Verify major version matches initial version
-          INITIAL_MAJOR=$(echo "${{ inputs.initial_version }}" | cut -d. -f1)
-          if [ "$major" != "$INITIAL_MAJOR" ]; then
-            echo "Error: Major version mismatch with initial version"
-            exit 1
-          fi
-          
-      - name: Build Docker image
-        uses: ./.github-workflows/.github/actions/docker-build
-
-      - name: Install Composer dependencies
-        working-directory: module
-        run: |
-          if [ -f "composer.json" ]; then
-            echo "Installing Composer dependencies with PHP ${{ steps.php_version.outputs.php_version }}..."
-            
-            # Create temporary composer.json without mikopbx/core
-            TMP_COMPOSER_FILE=$(mktemp)
-            jq 'del(.require["mikopbx/core"])' composer.json > "$TMP_COMPOSER_FILE"
-            
-            echo "Modified composer.json content:"
-            cat "$TMP_COMPOSER_FILE"
-            
-            # Fix git ownership issue
-            docker run --rm -v $PWD:/app -w /app \
-              ghcr.io/mikopbx/modules-builder-php${{ steps.php_version.outputs.php_version }}:latest \
-              git config --global --add safe.directory /app
-            
-            # Install dependencies using modified composer.json
-            docker run --rm -v $PWD:/app -w /app \
-              -v "$TMP_COMPOSER_FILE:/app/composer.json" \
-              ghcr.io/mikopbx/modules-builder-php${{ steps.php_version.outputs.php_version }}:latest \
-              composer install \
-                --no-dev \
-                --no-plugins \
-                --no-scripts \
-                --prefer-dist \
-                --no-progress \
-                --optimize-autoloader
-            
-            # Clean up
-            rm "$TMP_COMPOSER_FILE"
-            
-            # Verify installed extensions
-            docker run --rm -v $PWD:/app -w /app \
-              ghcr.io/mikopbx/modules-builder-php${{ steps.php_version.outputs.php_version }}:latest \
-              php -m
-          else
-            echo "No composer.json found, skipping dependencies installation"
-          fi
-      - name: Update module version
-        working-directory: module
-        run: |
-          # Update version in module.json
-          docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest \
-            sed -i "s/\"version\".*$/\"version\" : \"${{ steps.calc_version.outputs.new_version }}\",/" module.json
-
-      - name: Create module archive
-        working-directory: module
-        run: |
-          # Create ZIP archive with new version number
-          MODULE_RELEASE_FILENAME="${{ github.event.repository.name }}.${{ steps.calc_version.outputs.new_version }}.zip"
-          docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest \
-            zip -r "$MODULE_RELEASE_FILENAME" ./*
-          echo "module_filename=$MODULE_RELEASE_FILENAME" >> $GITHUB_ENV
-          
-      - name: Create WebDAV directory
-        if: github.ref == 'refs/heads/master' && steps.module_settings.outputs.publish_release == 'true'
-        working-directory: module
-        run: |
-          # Ensure WebDAV directory exists for the module
-          # First create parent directory if not exists
-          docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest \
-            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}/update.miko.ru"
-
-          # Then create MikoPBXPlugins directory
-          docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest \
-            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}/update.miko.ru/MikoPBXPlugins"
-
-          # Finally create module-specific directory
-          docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest \
-            curl -u ${{ secrets.OWNCLOUD_AUTH }} -X MKCOL "${{ secrets.WEBDAV_ROOT }}/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}"
-
-      - name: Upload to files.miko.ru
-        if: github.ref == 'refs/heads/master' && steps.module_settings.outputs.publish_release == 'true'
-        working-directory: module
-        run: |
-          # Upload module archive to the module-specific directory
-          docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest \
-            curl -u ${{ secrets.OWNCLOUD_AUTH }} -T ${{ env.module_filename }} "${{ secrets.WEBDAV_ROOT }}/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/"
-
+          version: ${{ steps.version.outputs.new_version }}
+      
+      # Generate changelog if enabled
       - name: Generate changelog
         id: changelog
-        if: steps.module_settings.outputs.changelog_enabled == 'true'
-        working-directory: module
-        run: |
-          # Generate changelog from git commits since last tag
-          CHANGELOG=$(git log $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD --pretty=format:"- %s")
-          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" > changelog.txt
-          
-      - name: Generate release JSON
-        if: github.ref == 'refs/heads/master' && steps.module_settings.outputs.publish_release == 'true'
-        working-directory: module
-        run: |
-          # Create JSON with release information
-          docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest bash -c 'set -e
-            
-            # Read and encode changelog
-            CHANGELOG=$(cat changelog.txt)
-            CHANGELOG_URL_ENC=$(echo "$CHANGELOG" | jq -Rr @uri)
-            
-            # Set module path and create share
-            MODULE_PATH="/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/${{ env.module_filename }}"
-            
-            # Request share link and store response for debugging
-            SHARE_RESPONSE=$(curl -s "${{ secrets.SHARE_API_URL }}" -k -u "${{ secrets.OWNCLOUD_AUTH }}" \
-              -X POST --data "path=$MODULE_PATH&shareType=3")
-            
-            # Extract URL using grep instead of xpath for better error handling
-            LINK=$(echo "$SHARE_RESPONSE" | grep -oP "(?<=<url>)[^<]+")
-            
-            if [ -z "$LINK" ]; then
-              echo "Error: Failed to get share link"
-              echo "Share response: $SHARE_RESPONSE"
-              exit 1
-            fi
-            
-            LINK_FULL="$LINK/download"
-            
-            # Calculate MD5 and size
-            MD5=$(md5sum "${{ env.module_filename }}" | cut -d" " -f1)
-            SIZE=$(stat -c%s "${{ env.module_filename }}")
-            
-            # Get min PBX version
-            MIN_PBX_VERSION=$(grep -oP "\"min_pbx_version\".+?[\"\047]\K[^\"\047]+" module.json || echo "")
-            
-            # Create JSON using jq for better reliability
-            jq -n \
-              --arg guid "${{ github.event.repository.name }}" \
-              --arg link "$LINK_FULL" \
-              --arg version "${{ steps.calc_version.outputs.new_version }}" \
-              --arg md5 "$MD5" \
-              --arg size "$SIZE" \
-              --arg minver "$MIN_PBX_VERSION" \
-              --arg changelog "$CHANGELOG_URL_ENC" \
-              --arg origpath "$MODULE_PATH" \
-              --arg name "${{ env.module_filename }}" \
-              '\''
-              {
-                "GUID": $guid,
-                "LINK": $link,
-                "VERSION": $version,
-                "MD5": $md5,
-                "SIZE": $size,
-                "MINPBXVER": $minver,
-                "CHANGELOG": $changelog,
-                "RELEASENOW": "false",
-                "ORIGINALPATH": $origpath,
-                "NAME": $name
-              }
-              '\'' > release.json
-            
-            echo "Debug: Generated JSON content:"
-            cat release.json
-            
-            # Validate JSON format
-            if ! jq empty release.json; then
-              echo "Error: Invalid JSON generated"
-              cat release.json
-              exit 1
-            fi'
-
-      - name: Create release on update.mikopbx.com
-        if: github.ref == 'refs/heads/master' && steps.module_settings.outputs.publish_release == 'true'
-        working-directory: module
-        run: |
-          # Submit release to MikoPBX update server
-          docker run --rm -v $PWD:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest bash -c '
-            set -e # Exit on error
-
-            # Validate release.json exists
-            if [ ! -f "release.json" ]; then
-                echo "Error: release.json not found"
-                exit 1
-            fi
-
-            # Generate request parameters
-            REQUEST_TIME=$(date +%s)
-            API_HASH=$(echo -n "${REQUEST_TIME}${{ secrets.MIKO_LIC_REST_VENDOR_ID }}${{ secrets.MIKO_LIC_REST_API_KEY }}" | sha512sum | cut -d" " -f1)
-            
-            echo "Debug: Generated parameters:"
-            echo "Request time: $REQUEST_TIME"
-            echo "API Hash: $API_HASH"
-
-            echo "Submitting release to MikoPBX update server..."
-            RESPONSE=$(curl -v -k \
-                -X POST "${{ secrets.MIKO_LIC_HOSTNAME }}/restapi/v1/addNewRelease" \
-                -H "API_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}" \
-                -H "API_TIME: $REQUEST_TIME" \
-                -H "API_HASH: $API_HASH" \
-                -H "Content-Type: application/json; charset=utf-8" \
-                -d @release.json 2>&1)
-            
-            echo "API Response:"
-            echo "$RESPONSE"
-            
-            # Check for curl errors
-            if echo "$RESPONSE" | grep -q "curl:"; then
-                echo "Error: CURL failed"
-                exit 1
-            fi
-            
-            # Check if request was successful
-            if ! echo "$RESPONSE" | grep -q "success"; then
-                echo "Error: Failed to submit release"
-                exit 1
-            fi
-            
-            echo "Release submission completed successfully"'
-
-      - name: Manage GitHub Releases
-        if: steps.module_settings.outputs.create_github_release == 'true'
-        working-directory: module
-        run: |
-          # Function to create a new release
-          create_release() {
-            local prerelease=$1
-            local tag=${{ steps.calc_version.outputs.new_version_tag }}
-            local title="Release ${{ steps.calc_version.outputs.new_version }}"
-            local notes="${{ steps.changelog.outputs.CHANGELOG }}"
-            
-            if [ "$prerelease" = "true" ]; then
-              title="Development Build ${{ steps.calc_version.outputs.new_version }}"
-              gh release create "$tag" \
-                ${{ env.module_filename }} \
-                --title "$title" \
-                --notes "$notes" \
-                --target ${{ github.sha }} \
-                --prerelease
-            else
-              gh release create "$tag" \
-                ${{ env.module_filename }} \
-                --title "$title" \
-                --notes "$notes" \
-                --target ${{ github.sha }}
-            fi
-          }
-
-          # Function to cleanup old development releases
-          cleanup_old_releases() {
-            echo "Cleaning up old development releases..."
-            
-            # Get list of prerelease tags, sorted by creation date
-            RELEASES=$(gh release list --limit 999 --exclude-drafts | grep "Pre-release" | awk '{print $1}')
-            
-            # Keep count of releases to delete
-            COUNT=0
-            for tag in $RELEASES; do
-              COUNT=$((COUNT + 1))
-              if [ $COUNT -gt 5 ]; then
-                echo "Deleting old development release: $tag"
-                gh release delete $tag --yes
-              fi
-            done
-          }
-
-          # Main release logic
-          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            echo "Creating development release..."
-            create_release true
-            cleanup_old_releases
-          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
-            echo "Creating production release..."
-            create_release false
-          else
-            echo "Skipping release creation for branch: ${{ github.ref }}"
-          fi
+        if: steps.validate.outputs.changelog_enabled == 'true'
+        uses: ./.github/actions/changelog
+      
+      # Publish to files.miko.ru if enabled
+      - name: Publish module
+        if: |
+          github.ref == 'refs/heads/master' && 
+          steps.validate.outputs.publish_release == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          OWNCLOUD_AUTH: ${{ secrets.OWNCLOUD_AUTH }}
+          WEBDAV_ROOT: ${{ secrets.WEBDAV_ROOT }}
+          SHARE_API_URL: ${{ secrets.SHARE_API_URL }}
+          MIKO_LIC_REST_VENDOR_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}
+          MIKO_LIC_REST_API_KEY: ${{ secrets.MIKO_LIC_REST_API_KEY }}
+          MIKO_LIC_HOSTNAME: ${{ secrets.MIKO_LIC_HOSTNAME }}
+        uses: ./.github/actions/publish
         with:
-          name: ${{ github.event.repository.name }}
-          path: module/${{ env.module_filename }}
+          module_filename: ${{ steps.archive.outputs.filename }}
+          version: ${{ steps.version.outputs.new_version }}
+          changelog: ${{ steps.changelog.outputs.changelog }}
+      
+      # Create releases if enabled
+      - name: Create releases
+        if: steps.validate.outputs.create_github_release == 'true'
+        uses: ./.github/actions/release
+        with:
+          version: ${{ steps.version.outputs.new_version }}
+          version_tag: ${{ steps.version.outputs.new_version_tag }}
+          module_filename: ${{ steps.archive.outputs.filename }}
+          changelog: ${{ steps.changelog.outputs.changelog }}
