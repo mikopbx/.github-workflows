@@ -11,26 +11,34 @@ runs:
   steps:
     - name: Install Composer dependencies
       shell: bash
+      working-directory: ${{ github.workspace }}/module
       run: |
-        if [ -f "module/composer.json" ]; then
-          echo "Installing Composer dependencies with PHP ${{ inputs.php_version }}..."
-          
-          # Create temporary composer.json without mikopbx/core
-          TMP_COMPOSER_FILE=$(mktemp)
-          jq 'del(.require["mikopbx/core"])' module/composer.json > "$TMP_COMPOSER_FILE"
-          
-          echo "Modified composer.json content:"
-          cat "$TMP_COMPOSER_FILE"
-          
-          # Fix git ownership issue
-          docker run --rm -v $PWD/module:/app -w /app \
-            ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
+        # Check if composer.json exists
+        if [ ! -f "composer.json" ]; then
+          echo "No composer.json found, skipping dependencies installation"
+          exit 0
+        fi
+
+        echo "Installing Composer dependencies with PHP ${{ inputs.php_version }}..."
+        
+        # Create temporary composer.json without mikopbx/core
+        TMP_COMPOSER_FILE=$(mktemp)
+        jq 'del(.require["mikopbx/core"])' composer.json > "$TMP_COMPOSER_FILE"
+        
+        echo "Modified composer.json content:"
+        cat "$TMP_COMPOSER_FILE"
+        
+        # Run composer in a single Docker command to avoid multiple container startups
+        docker run --rm \
+          -v ${{ github.workspace }}/module:/app \
+          -w /app \
+          -v "$TMP_COMPOSER_FILE:/app/composer.json" \
+          ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
+          bash -c '
+            # Configure git
             git config --global --add safe.directory /app
-          
-          # Install dependencies
-          docker run --rm -v $PWD/module:/app -w /app \
-            -v "$TMP_COMPOSER_FILE:/app/composer.json" \
-            ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
+            
+            # Install dependencies
             composer install \
               --no-dev \
               --no-plugins \
@@ -38,14 +46,11 @@ runs:
               --prefer-dist \
               --no-progress \
               --optimize-autoloader
-          
-          # Clean up temporary file
-          rm "$TMP_COMPOSER_FILE"
-          
-          echo "Verifying installed PHP extensions:"
-          docker run --rm -v $PWD/module:/app -w /app \
-            ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
+            
+            # Show PHP extensions
+            echo "Verifying installed PHP extensions:"
             php -m
-        else
-          echo "No composer.json found, skipping dependencies installation"
-        fi
+          '
+        
+        # Clean up
+        rm "$TMP_COMPOSER_FILE"
