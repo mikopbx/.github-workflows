@@ -21,8 +21,16 @@ runs:
     # Validate minimum PBX version requirement
     - name: Validate PBX version
       shell: bash
+      working-directory: ${{ github.workspace }}/module
       run: |
-        MIN_PBX_VERSION=$(jq -r .min_pbx_version module.json)
+        MODULE_JSON="module.json"
+        if [ ! -f "$MODULE_JSON" ]; then
+          echo "Error: module.json not found in $(pwd)"
+          ls -la
+          exit 1
+        fi
+
+        MIN_PBX_VERSION=$(jq -r .min_pbx_version "$MODULE_JSON")
         if [ -z "$MIN_PBX_VERSION" ] || [ "$MIN_PBX_VERSION" = "null" ]; then
           echo "Error: min_pbx_version not specified in module.json"
           exit 1
@@ -32,10 +40,12 @@ runs:
     # Check required metadata fields
     - name: Validate required fields
       shell: bash
+      working-directory: ${{ github.workspace }}/module
       run: |
+        MODULE_JSON="module.json"
         REQUIRED_FIELDS=("developer" "moduleUniqueID" "support_email")
         for field in "${REQUIRED_FIELDS[@]}"; do
-          value=$(jq -r ".$field" module.json)
+          value=$(jq -r ".$field" "$MODULE_JSON")
           if [ -z "$value" ] || [ "$value" = "null" ]; then
             echo "Error: Required field '$field' is missing or empty in module.json"
             exit 1
@@ -46,6 +56,7 @@ runs:
     - name: Check PHP version
       id: check_php
       shell: bash
+      working-directory: ${{ github.workspace }}/module
       run: |
         if [ -f "composer.json" ]; then
           PHP_REQ=$(jq -r '.require.php' composer.json)
@@ -64,13 +75,20 @@ runs:
     - name: Read module settings
       id: settings
       shell: bash
+      working-directory: ${{ github.workspace }}/module
       run: |
         echo "Reading module settings..."
+        MODULE_JSON="module.json"
+        
+        echo "Current directory: $(pwd)"
+        echo "Module.json contents:"
+        cat "$MODULE_JSON"
+        
         SETTINGS=$(jq -r '{
           publish_release: .release_settings.publish_release,
           changelog_enabled: .release_settings.changelog_enabled,
           create_github_release: .release_settings.create_github_release
-        }' module.json)
+        }' "$MODULE_JSON")
         
         echo "publish_release=$(echo $SETTINGS | jq -r .publish_release)" >> $GITHUB_OUTPUT
         echo "changelog_enabled=$(echo $SETTINGS | jq -r .changelog_enabled)" >> $GITHUB_OUTPUT
