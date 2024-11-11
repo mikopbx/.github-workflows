@@ -1,6 +1,12 @@
 name: 'Build Docker Image'
 description: 'Builds Docker image for MikoPBX module development'
 
+inputs:
+  php_version:
+    description: 'PHP version to use (7.4 or 8.3)'
+    required: true
+    default: '7.4'
+
 runs:
   using: 'composite'
   steps:
@@ -18,13 +24,12 @@ runs:
       uses: docker/build-push-action@v5
       with:
         context: ${{ github.action_path }}
-        file: ${{ github.action_path }}/Dockerfile
-        push: true  # Включаем push в registry для кэширования
+        file: ${{ github.action_path }}/Dockerfile.${{ inputs.php_version }}
+        push: true
         tags: |
-          ghcr.io/mikopbx/modules-builder:latest
-          ghcr.io/mikopbx/modules-builder:${{ github.sha }}
-        load: true  # Также загружаем образ локально
+          ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest
+          ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:${{ github.sha }}
         cache-from: |
-          type=registry,ref=ghcr.io/mikopbx/modules-builder:latest
-          type=registry,ref=ghcr.io/mikopbx/modules-builder:buildcache
-        cache-to: type=registry,ref=ghcr.io/mikopbx/modules-builder:buildcache,mode=max
+          type=registry,ref=ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest
+          type=registry,ref=ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:buildcache
+        cache-to: type=registry,ref=ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:buildcache,mode=max
