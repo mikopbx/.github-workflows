@@ -1,6 +1,6 @@
 FROM ubuntu:jammy
 
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install basic requirements
 RUN apt-get update && apt-get install -y --no-install-recommends \
