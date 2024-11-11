@@ -1,3 +1,4 @@
+# .github/actions/composer/action.yml
 name: 'Composer Dependencies'
 description: 'Manages Composer dependencies installation'
 inputs:
@@ -22,6 +23,12 @@ runs:
         TMP_COMPOSER_FILE=$(mktemp)
         jq 'del(.require["mikopbx/core"])' composer.json > "$TMP_COMPOSER_FILE"
         
+        echo "Modified composer.json content:"
+        cat "$TMP_COMPOSER_FILE"
+        
+        # Copy modified composer.json to a predictable location
+        cp "$TMP_COMPOSER_FILE" composer.json.tmp
+        
         # Ensure correct permissions
         docker run --rm \
           -v ${{ github.workspace }}/module:/app \
@@ -30,6 +37,12 @@ runs:
           bash -c '
             # Configure git
             git config --global --add safe.directory /app
+            
+            # Backup original composer.json
+            cp composer.json composer.json.original
+            
+            # Use modified composer.json
+            cp composer.json.tmp composer.json
             
             # Install dependencies with basic autoloader
             composer install \
@@ -44,11 +57,15 @@ runs:
             # Generate simple autoloader
             composer dump-autoload \
               --no-dev
+            
+            # Restore original composer.json
+            mv composer.json.original composer.json
+            rm composer.json.tmp
           '
         
-        # Clean up
+        # Cleanup
         rm "$TMP_COMPOSER_FILE"
-
+        
         # Verify autoloader was created
         if [ ! -f "vendor/autoload.php" ]; then
           echo "Error: autoload.php was not generated"
