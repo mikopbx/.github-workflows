@@ -126,10 +126,11 @@ runs:
           -H "Content-Type: application/json; charset=utf-8" \
           -d @release.json)
         
-        STATUS=$(echo "$RESPONSE" | jq -r '.status')
-        if [ "$STATUS" = "ok" ]; then
+         # Extract just the status value using grep and sed
+        if echo "$RESPONSE" | grep -q "{status:'ok'}"; then
           echo "Release published successfully!"
         else
-          echo "Error: Failed to publish release. Status: $STATUS"
+          echo "Error: Failed to publish release"
+          echo "Response: $RESPONSE"
           exit 1
         fi
