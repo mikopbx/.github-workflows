@@ -15,20 +15,27 @@ runs:
           echo "No composer.json found, skipping dependencies installation"
           exit 0
         fi
+        
         echo "Installing Composer dependencies with PHP ${{ inputs.php_version }}..."
         
         # Create temporary composer.json without mikopbx/core
         TMP_COMPOSER_FILE=$(mktemp)
         jq 'del(.require["mikopbx/core"])' composer.json > "$TMP_COMPOSER_FILE"
         
-        # Install dependencies
+        # Ensure correct permissions
         docker run --rm \
           -v ${{ github.workspace }}/module:/app \
           -w /app \
-          -v "$TMP_COMPOSER_FILE:/app/composer.json" \
           ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
           bash -c '
+            # Set correct permissions
+            chown -R root:root /app
+            chmod -R 755 /app
+            
+            # Configure git
             git config --global --add safe.directory /app
+            
+            # Install dependencies with basic autoloader
             composer install \
               --no-dev \
               --no-plugins \
@@ -36,7 +43,12 @@ runs:
               --prefer-dist \
               --no-progress \
               --no-interaction \
-              --optimize-autoloader
+              --no-autoloader
+            
+            # Generate simple autoloader
+            composer dump-autoload \
+              --no-dev \
+              --optimize
           '
         
         # Clean up
@@ -45,5 +57,6 @@ runs:
         # Verify autoloader was created
         if [ ! -f "vendor/autoload.php" ]; then
           echo "Error: autoload.php was not generated"
+          ls -la vendor/
           exit 1
         fi
