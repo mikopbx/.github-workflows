@@ -26,6 +26,6 @@ runs:
         for DIR in "update.miko.ru" "update.miko.ru/MikoPBXPlugins" "update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}"; do
           echo "Creating directory: $DIR"
           docker run --rm -v $PWD/module:/app -w /app \
-            ghcr.io/mikopbx/modules-builder:latest \
+            ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest \
             curl -u "$OWNCLOUD_AUTH" -X MKCOL "$WEBDAV_ROOT/$DIR"
         done
