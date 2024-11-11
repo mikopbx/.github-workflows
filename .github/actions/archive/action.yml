@@ -1,0 +1,42 @@
+name: 'Create Module Archive'
+description: 'Creates ZIP archive of the module'
+
+inputs:
+  version:
+    description: 'Module version'
+    required: true
+
+outputs:
+  filename:
+    description: 'Generated archive filename'
+    value: ${{ steps.create_archive.outputs.filename }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Create module archive
+      id: create_archive
+      shell: bash
+      run: |
+        # Set archive filename
+        MODULE_RELEASE_FILENAME="${{ github.event.repository.name }}.${{ inputs.version }}.zip"
+        echo "filename=$MODULE_RELEASE_FILENAME" >> $GITHUB_OUTPUT
+        
+        echo "Creating module archive: $MODULE_RELEASE_FILENAME"
+        
+        # Create ZIP archive excluding unnecessary files
+        cd module
+        zip -r "$MODULE_RELEASE_FILENAME" ./* \
+          --exclude ".git/*" \
+          --exclude ".github/*" \
+          --exclude "tests/*" \
+          --exclude "*.md" \
+          --exclude "*.git*"
+        
+        # Verify archive creation
+        if [ ! -f "$MODULE_RELEASE_FILENAME" ]; then
+          echo "Error: Failed to create module archive"
+          exit 1
+        fi
+        
+        echo "Archive size: $(stat -f%z "$MODULE_RELEASE_FILENAME") bytes"
