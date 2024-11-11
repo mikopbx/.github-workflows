@@ -57,13 +57,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php8.3-random \
     php8.3-redis \
     php8.3-reflection \
-    php8.3-session \
+    php8.3-gd \
     php8.3-shmop \
     php8.3-simplexml \
     php8.3-sockets \
-    php8.3-spl \
     php8.3-sqlite3 \
-    php8.3-standard \
     php8.3-tokenizer \
     php8.3-xdebug \
     php8.3-xml \
@@ -71,7 +69,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php8.3-xmlwriter \
     php8.3-yaml \
     php8.3-zip \
-    php8.3-zlib \
     && rm -rf /var/lib/apt/lists/*
 
 # Verify PHP extensions
