@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Add Phalcon 4.x repository
 RUN curl -s https://packagecloud.io/install/repositories/phalcon/stable/script.deb.sh | bash
 
-# Install PHP 7.4 and Phalcon 4
+# Install PHP 7.4 and all required extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     php7.4 \
     php7.4-cli \
@@ -31,10 +31,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php7.4-psr \
     php7.4-dev \
     php7.4-phalcon \
+    php7.4-ldap \
+    php7.4-mailparse \
+    php7.4-json \
+    php7.4-opcache \
+    php7.4-readline \
+    php7.4-soap \
+    php7.4-bcmath \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify Phalcon installation
-RUN php -m | grep -i phalcon
+# Verify PHP extensions
+RUN php -m
 
 # Install Composer
 RUN cd /tmp \
