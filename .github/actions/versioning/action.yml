@@ -1,0 +1,92 @@
+name: 'Version Management'
+description: 'Manages module versioning'
+
+inputs:
+  initial_version:
+    description: 'Initial version for the module'
+    required: true
+
+outputs:
+  new_version:
+    description: 'New version number'
+    value: ${{ steps.calc_version.outputs.new_version }}
+  new_version_tag:
+    description: 'New version tag'
+    value: ${{ steps.calc_version.outputs.new_version_tag }}
+
+runs:
+  using: "composite"
+  steps:
+    # Get the latest release version from GitHub
+    - name: Get latest release version
+      id: get_version
+      shell: bash
+      run: |
+        echo "Trying to get latest release..."
+        
+        # Try to get latest release tag directly
+        LATEST_TAG=$(gh api repos/${{ github.repository }}/releases/latest --jq .tag_name 2>/dev/null || echo "")
+        echo "Latest release tag from API: $LATEST_TAG"
+        
+        if [ -z "$LATEST_TAG" ]; then
+          echo "No releases found via API, using initial version"
+          LATEST_VERSION="${{ inputs.initial_version }}"
+        else
+          # Remove 'v' prefix if present
+          LATEST_VERSION=$(echo "$LATEST_TAG" | sed 's/^v//')
+          echo "Extracted version: $LATEST_VERSION"
+          
+          # Validate version format
+          if ! echo "$LATEST_VERSION" | grep -qE '^[0-9]+\.[0-9]+$'; then
+            echo "Warning: Invalid version format, using initial version"
+            LATEST_VERSION="${{ inputs.initial_version }}"
+          fi
+        fi
+        
+        echo "latest_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    # Calculate new version
+    - name: Calculate new version
+      id: calc_version
+      shell: bash
+      run: |
+        LATEST_VERSION="${{ steps.get_version.outputs.latest_version }}"
+        echo "Starting version calculation from: $LATEST_VERSION"
+        
+        # Split version into major and minor parts
+        IFS='.' read -r major minor <<< "$LATEST_VERSION"
+        
+        # Verify valid numbers
+        if ! [[ "$major" =~ ^[0-9]+$ ]] || ! [[ "$minor" =~ ^[0-9]+$ ]]; then
+          echo "Error: Invalid version format in $LATEST_VERSION"
+          exit 1
+        fi
+        
+        # Increment minor version
+        new_minor=$((minor + 1))
+        NEW_VERSION="$major.$new_minor"
+        
+        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "new_version_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "Calculated new version: $NEW_VERSION (from $LATEST_VERSION)"
+        
+        # Validate version format
+        if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+$'; then
+          echo "Error: Invalid version format generated"
+          exit 1
+        fi
+        
+        # Verify major version matches initial version
+        INITIAL_MAJOR=$(echo "${{ inputs.initial_version }}" | cut -d. -f1)
+        if [ "$major" != "$INITIAL_MAJOR" ]; then
+          echo "Error: Major version mismatch with initial version"
+          exit 1
+        fi
+
+    # Update version in module.json
+    - name: Update module version
+      shell: bash
+      run: |
+        sed -i "s/\"version\".*$/\"version\" : \"${{ steps.calc_version.outputs.new_version }}\",/" module/module.json
