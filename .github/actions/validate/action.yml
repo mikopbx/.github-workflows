@@ -11,10 +11,14 @@ outputs:
   create_github_release:
     description: 'Whether to create GitHub release'
     value: ${{ steps.settings.outputs.create_github_release }}
+  php_version:
+    description: 'PHP version to use'
+    value: ${{ steps.check_php.outputs.php_version }}
 
 runs:
   using: "composite"
   steps:
+    # Validate minimum PBX version requirement
     - name: Validate PBX version
       shell: bash
       run: |
@@ -25,6 +29,7 @@ runs:
         fi
         echo "Minimum PBX version requirement: $MIN_PBX_VERSION"
 
+    # Check required metadata fields
     - name: Validate required fields
       shell: bash
       run: |
@@ -37,6 +42,25 @@ runs:
           fi
         done
 
+    # Determine PHP version from composer.json
+    - name: Check PHP version
+      id: check_php
+      shell: bash
+      run: |
+        if [ -f "composer.json" ]; then
+          PHP_REQ=$(jq -r '.require.php' composer.json)
+          if [[ "$PHP_REQ" == *"8.3"* ]] || [[ "$PHP_REQ" == ">=8.3" ]]; then
+            echo "php_version=8.3" >> $GITHUB_OUTPUT
+          else
+            echo "php_version=7.4" >> $GITHUB_OUTPUT
+          fi
+          echo "Using PHP version: $PHP_REQ"
+        else
+          echo "php_version=7.4" >> $GITHUB_OUTPUT
+          echo "No composer.json found, defaulting to PHP 7.4"
+        fi
+
+    # Extract module settings from module.json
     - name: Read module settings
       id: settings
       shell: bash
@@ -51,3 +75,6 @@ runs:
         echo "publish_release=$(echo $SETTINGS | jq -r .publish_release)" >> $GITHUB_OUTPUT
         echo "changelog_enabled=$(echo $SETTINGS | jq -r .changelog_enabled)" >> $GITHUB_OUTPUT
         echo "create_github_release=$(echo $SETTINGS | jq -r .create_github_release)" >> $GITHUB_OUTPUT
+        
+        echo "Module settings loaded:"
+        echo "$SETTINGS"
