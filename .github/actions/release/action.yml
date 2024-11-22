@@ -68,7 +68,7 @@ runs:
           if ! gh release list --limit 1 &>/dev/null; then
             echo "No releases found - skipping cleanup"
             return 0
-          }
+          fi
           
           # Get list of prerelease tags, sorted by creation date
           OLD_RELEASES=$(gh release list \
@@ -106,3 +106,5 @@ runs:
         else
           echo "Skipping release creation for branch: $GITHUB_REF"
         fi
+        
+        echo "Release management completed successfully"
