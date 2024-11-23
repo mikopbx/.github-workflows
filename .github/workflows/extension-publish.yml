@@ -75,12 +75,21 @@ jobs:
         with:
           php_version: ${{ steps.validate.outputs.php_version }}
 
+      - name: Cache Docker images
+        uses: actions/cache@v3
+        id: docker-cache
+        with:
+          path: ${{ runner.temp }}/docker-cache-*.tar
+          key: ${{ runner.os }}-docker-${{ hashFiles('module/**/Dockerfile') }}
+          restore-keys: |
+            ${{ runner.os }}-docker-
+
       - name: Execute custom build steps
         if: inputs.custom_build_steps != ''
         shell: bash
         env:
           RUNNER_TEMP: ${{ runner.temp }}
-          CACHE_KEY: ${{ runner.os }}-docker-${{ github.sha }}
+          CACHE_HIT: ${{ steps.docker-cache.outputs.cache-hit }}
         run: |
           echo "Starting custom build process..."
           ${{ inputs.custom_build_steps }}
