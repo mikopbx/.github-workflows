@@ -14,18 +14,24 @@ on:
         default: ''
         description: 'Custom build steps to execute during build process, including Docker builds'
     secrets:
-      OWNCLOUD_AUTH:
-        required: true
       MIKO_LIC_REST_VENDOR_ID:
         required: true
+        description: 'Vendor ID for publishing releases on releases.mikopbx.com'
       MIKO_LIC_REST_API_KEY:
         required: true
+        description: 'API key for licensing on releases.mikopbx.com'
       MIKO_LIC_HOSTNAME:
         required: true
+        description: 'Releases server hostname for publishing on releases.mikopbx.com'
+      OWNCLOUD_AUTH:
+        required: true
+        description: 'Authentication for storage on files.miko.ru'
       WEBDAV_ROOT:
         required: true
+        description: 'WebDAV root path on files.miko.ru'
       SHARE_API_URL:
         required: true
+        description: 'Share API URL on files.miko.ru'
 
 permissions:
   contents: write

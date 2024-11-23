@@ -27,6 +27,16 @@ The extension-publish workflow accepts the following inputs:
 |-------|-------------|------|---------|
 | `custom_build_steps` | Custom build steps to execute during build process, including Docker builds | string | '' |
 
+### Required Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `MIKO_LIC_REST_VENDOR_ID` | Vendor ID for publishing releases on releases.mikopbx.com |
+| `MIKO_LIC_REST_API_KEY` | API key for licensing on releases.mikopbx.com |
+| `MIKO_LIC_HOSTNAME` | Releases server hostname for publishing on releases.mikopbx.com |
+| `OWNCLOUD_AUTH` | Authentication for storage on files.miko.ru |
+| `WEBDAV_ROOT` | WebDAV root path on files.miko.ru |
+| `SHARE_API_URL` | Share API URL on files.miko.ru |
 
 ## Usage
 
@@ -51,13 +61,7 @@ jobs:
     uses: mikopbx/.github-workflows/.github/workflows/extension-publish.yml@master
     with:
       initial_version: "1.50"  # Set your module's initial version
-    secrets:
-      OWNCLOUD_AUTH: ${{ secrets.OWNCLOUD_AUTH }}
-      MIKO_LIC_REST_VENDOR_ID: ${{ secrets.MIKO_LIC_REST_VENDOR_ID }}
-      MIKO_LIC_REST_API_KEY: ${{ secrets.MIKO_LIC_REST_API_KEY }}
-      MIKO_LIC_HOSTNAME: ${{ secrets.MIKO_LIC_HOSTNAME }}
-      WEBDAV_ROOT: ${{ secrets.WEBDAV_ROOT }}
-      SHARE_API_URL: ${{ secrets.SHARE_API_URL }}
+    secrets: inherit # Automatically passes all available secrets
 ```
 
 ### Custom Build Steps
@@ -251,6 +255,28 @@ Common issues and solutions:
    - Check module.json settings
    - Review action logs for specific errors
 
+### Important Notes
+
+1. **Secrets Configuration**:
+   - All secrets should be configured at the organization or repository level
+   - Use `secrets: inherit` to automatically pass all secrets to the workflow
+   - Ensure all required secrets are available before running the workflow
+
+2. **Custom Build Steps**:
+   - Executed after dependency handling and before package creation
+   - Have access to full GitHub Actions environment
+   - Can use Docker for isolated builds
+   - Should place artifacts in the correct module directories
+
+3. **Working Directory**:
+   - Base: `$GITHUB_WORKSPACE`
+   - Module: `$GITHUB_WORKSPACE/module`
+   - Build artifacts should be placed in appropriate module directories
+
+4. **Environment**:
+   - Runner: Ubuntu latest
+   - Docker support available
+   - Full access to GitHub Actions environment variables
 
 ## Support
 
