@@ -12,7 +12,7 @@ on:
         required: false
         type: string
         default: ''
-        description: 'Custom build steps to execute during build process, including Docker builds'
+        description: 'Custom build steps to execute during build process'
     secrets:
       MIKO_LIC_REST_VENDOR_ID:
         required: true
@@ -75,19 +75,12 @@ jobs:
         with:
           php_version: ${{ steps.validate.outputs.php_version }}
 
-      - name: Cache Docker images
-        uses: actions/cache@v3
-        with:
-          path: ${{ runner.temp }}/docker-cache.tar
-          key: ${{ runner.os }}-docker-${{ hashFiles('**/Dockerfile') }}
-          restore-keys: |
-            ${{ runner.os }}-docker-
-
       - name: Execute custom build steps
         if: inputs.custom_build_steps != ''
         shell: bash
         env:
           RUNNER_TEMP: ${{ runner.temp }}
+          CACHE_KEY: ${{ runner.os }}-docker-${{ github.sha }}
         run: |
           echo "Starting custom build process..."
           ${{ inputs.custom_build_steps }}
