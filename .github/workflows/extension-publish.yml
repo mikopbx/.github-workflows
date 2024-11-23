@@ -78,7 +78,7 @@ jobs:
       - name: Cache Docker images
         uses: actions/cache@v3
         with:
-          path: /tmp/docker-cache.tar
+          path: ${{ runner.temp }}/docker-cache.tar
           key: ${{ runner.os }}-docker-${{ hashFiles('**/Dockerfile') }}
           restore-keys: |
             ${{ runner.os }}-docker-
@@ -86,6 +86,8 @@ jobs:
       - name: Execute custom build steps
         if: inputs.custom_build_steps != ''
         shell: bash
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
         run: |
           echo "Starting custom build process..."
           ${{ inputs.custom_build_steps }}
