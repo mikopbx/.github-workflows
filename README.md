@@ -11,9 +11,29 @@ This repository contains reusable GitHub Actions workflows for MikoPBX module de
 - Composer dependencies handling
 - Changelog generation
 
+## Workflow Inputs
+
+The extension-publish workflow accepts the following inputs:
+
+### Required Inputs
+
+| Input | Description | Type | Default |
+|-------|-------------|------|---------|
+| `initial_version` | Initial version for the module (e.g., "1.70") | string | - |
+
+### Optional Inputs
+
+| Input | Description | Type | Default |
+|-------|-------------|------|---------|
+| `custom_build_steps` | Custom build steps to execute during build process, including Docker builds | string | '' |
+
+
 ## Usage
 
-### 1. Basic Setup
+### Basic Usage
+
+For modules that don't require custom build steps, use this basic configuration:
+
 
 Create `.github/workflows/build.yml` in your module repository:
 
@@ -40,6 +60,73 @@ jobs:
       SHARE_API_URL: ${{ secrets.SHARE_API_URL }}
 ```
 
+### Custom Build Steps
+
+For modules requiring custom compilation or build steps, use the `custom_build_steps` parameter. This allows you to:
+- Use Docker containers for isolated builds
+- Compile binary components
+- Run specific build tools
+- Execute custom build scripts
+
+#### Example: Simple Custom Build
+
+```yaml
+jobs:
+  build:
+    uses: mikopbx/.github-workflows/.github/workflows/extension-publish.yml@master
+    with:
+      initial_version: "1.70"
+      custom_build_steps: |
+      cd $GITHUB_WORKSPACE/module
+      make build
+      chmod +x bin/
+```
+
+
+#### Example: Docker-based Build
+
+```yaml
+jobs:
+  build:
+  uses: mikopbx/.github-workflows/.github/workflows/extension-publish.yml@master
+  with:
+    initial_version: "1.70"
+    custom_build_steps: |
+    cd $GITHUB_WORKSPACE/module
+    # Build custom Docker image
+    docker build -t custom-builder -f Dockerfile.build .
+    # Run compilation
+    docker run --rm \
+    -v $GITHUB_WORKSPACE/module:/build \
+    -w /build \
+    custom-builder \
+    bash -c "make && make install"
+```
+
+#### Example: Multiple Build Environments
+
+```yaml
+jobs:
+  build:
+  uses: mikopbx/.github-workflows/.github/workflows/extension-publish.yml@master
+  with:
+    initial_version: "1.70"
+    custom_build_steps: |
+    cd $GITHUB_WORKSPACE/module
+    # C++ compilation
+    docker run --rm \
+    -v $GITHUB_WORKSPACE/module:/build \
+    -w /build \
+    gcc:latest \
+    bash -c "g++ -o bin/app src/main.cpp"
+    # Go compilation
+    docker run --rm \
+    -v $GITHUB_WORKSPACE/module:/build \
+    -w /build \
+    golang:1.21 \
+    bash -c "cd cmd && go build -o ../bin/tool"
+```
+
 ### 2. Module Configuration
 
 Create or update `module.json` in your module's src directory:
@@ -49,9 +136,6 @@ Create or update `module.json` in your module's src directory:
   "name": "Your Module Name",
   "version": "1.50",
   "min_pbx_version": "2024.1.22",
-  "build_settings": {
-    "use_composer": false,     // Enable/disable Composer dependencies installation
-  },
   "release_settings": {
     "publish_release": true,   // Enable/disable publishing to files.miko.ru and releases.mikopbx.com
     "changelog_enabled": true, // Enable/disable changelog generation
@@ -60,9 +144,41 @@ Create or update `module.json` in your module's src directory:
 }
 ```
 
-### 3. Organization Secrets
+### Custom Build Requirements
 
-Set up the following secrets in your GitHub organization settings:
+When using custom build steps:
+
+1. **File Structure**:
+   - Place build-related files (Dockerfile.build, Makefile, etc.) in your module repository
+   - Ensure compiled artifacts are placed in the correct location for packaging
+
+2. **Docker Considerations**:
+   - Use `$GITHUB_WORKSPACE/module` as the mount point for your module code
+   - Clean up containers and images after use
+   - Consider using Docker build cache for faster builds
+
+3. **Environment Variables**:
+   - Access to all GitHub Actions environment variables
+   - Can pass additional variables to Docker containers
+
+4. **Best Practices**:
+   - Keep Dockerfiles in your module repository
+   - Document build requirements clearly
+   - Test custom build steps locally before committing
+
+### Workflow Steps
+
+The workflow executes in this order:
+1. Repository checkout
+2. Module validation
+3. Version management
+4. Environment setup
+5. Dependency handling
+6. Custom build steps (if specified)
+7. Package creation
+8. Publishing and release
+
+### Set up the following secrets in your GitHub organization settings:
 
 - `OWNCLOUD_AUTH`: Authentication for files.miko.ru
 - `MIKO_LIC_REST_VENDOR_ID`: Vendor ID for releases.mikopbx.com
@@ -96,9 +212,6 @@ Set up the following secrets in your GitHub organization settings:
 
 ```json
 {
-  "build_settings": {
-    "use_composer": false       // Whether to run composer install during build
-  },
   "release_settings": {
     "publish_release": true,    // Enable/disable publishing to MikoPBX platforms
     "changelog_enabled": true,  // Enable/disable changelog generation
@@ -138,10 +251,12 @@ Common issues and solutions:
    - Check module.json settings
    - Review action logs for specific errors
 
-3. **Composer issues**:
-   - Verify `build_settings.use_composer` is set correctly in module.json
-   - Check composer.json is valid
-   - Review composer install logs in action output
+
+## Support
+
+For issues or questions about:
+- Workflow configuration: Open an issue in this repository
+- Module-specific build problems: Open an issue in the module's repository
 
 ## Contributing
 

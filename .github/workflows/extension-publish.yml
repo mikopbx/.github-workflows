@@ -8,6 +8,11 @@ on:
         required: true
         type: string
         description: 'Initial version for the module (e.g., "1.18")'
+      custom_build_steps:
+        required: false
+        type: string
+        default: ''
+        description: 'Custom build steps to execute during build process, including Docker builds'
     secrets:
       OWNCLOUD_AUTH:
         required: true
@@ -63,6 +68,14 @@ jobs:
         uses: ./.github-workflows/.github/actions/composer
         with:
           php_version: ${{ steps.validate.outputs.php_version }}
+
+      - name: Execute custom build steps
+        if: inputs.custom_build_steps != ''
+        shell: bash
+        run: |
+          echo "Starting custom build process..."
+          ${{ inputs.custom_build_steps }}
+          echo "Custom build process completed."
 
       - name: Create module package
         id: archive
