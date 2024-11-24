@@ -39,6 +39,13 @@ runs:
           local notes="$INPUT_CHANGELOG"
           local extra_args=""
           
+          # Check if release already exists
+          if gh release view "$tag" &>/dev/null; then
+            echo "Release $tag already exists. Deleting existing release..."
+            gh release delete "$tag" --yes || true
+            git push --delete origin "$tag" || true
+          fi
+          
           # Format release title based on branch
           if [ "$prerelease" = "true" ]; then
             title="Development Build $INPUT_VERSION"
