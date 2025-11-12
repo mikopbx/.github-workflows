@@ -95,6 +95,9 @@ jobs:
           ${{ inputs.custom_build_steps }}
           echo "Custom build process completed."
 
+      - name: Sync translations from Core
+        uses: ./.github-workflows/.github/actions/sync-translations
+
       - name: Create module package
         id: archive
         uses: ./.github-workflows/.github/actions/archive

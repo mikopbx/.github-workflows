@@ -1,0 +1,105 @@
+name: 'Sync Translations'
+description: 'Synchronizes translation files from mikopbx/Core repository'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check if translation sync is enabled
+      id: check_sync
+      shell: bash
+      working-directory: ${{ github.workspace }}/module
+      run: |
+        MODULE_JSON="module.json"
+
+        # Check if translation_sync section exists and is enabled
+        SYNC_ENABLED=$(jq -r '.translation_sync.enabled // false' "$MODULE_JSON")
+
+        if [ "$SYNC_ENABLED" != "true" ]; then
+          echo "Translation sync is disabled or not configured"
+          echo "sync_enabled=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "sync_enabled=true" >> $GITHUB_OUTPUT
+
+        # Extract sync settings
+        SOURCE_REPO=$(jq -r '.translation_sync.source_repo' "$MODULE_JSON")
+        SOURCE_BRANCH=$(jq -r '.translation_sync.source_branch' "$MODULE_JSON")
+        LANG_CODE=$(jq -r '.translation_sync.language_code' "$MODULE_JSON")
+        EXCLUDE_FILES=$(jq -r '.translation_sync.exclude_files[]?' "$MODULE_JSON")
+
+        echo "source_repo=$SOURCE_REPO" >> $GITHUB_OUTPUT
+        echo "source_branch=$SOURCE_BRANCH" >> $GITHUB_OUTPUT
+        echo "lang_code=$LANG_CODE" >> $GITHUB_OUTPUT
+
+        # Save exclude files to a temporary file
+        echo "$EXCLUDE_FILES" > /tmp/exclude_files.txt
+
+        echo "Translation sync settings:"
+        echo "  Source repository: $SOURCE_REPO"
+        echo "  Source branch: $SOURCE_BRANCH"
+        echo "  Language code: $LANG_CODE"
+        echo "  Exclude files: $EXCLUDE_FILES"
+
+    - name: Checkout Core repository
+      if: steps.check_sync.outputs.sync_enabled == 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ steps.check_sync.outputs.source_repo }}
+        ref: ${{ steps.check_sync.outputs.source_branch }}
+        path: core-repo
+
+    - name: Sync translation files
+      if: steps.check_sync.outputs.sync_enabled == 'true'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        LANG_CODE="${{ steps.check_sync.outputs.lang_code }}"
+        SOURCE_DIR="core-repo/src/Common/Messages/${LANG_CODE}"
+        TARGET_DIR="module/Messages/${LANG_CODE}"
+
+        echo "Syncing translations from $SOURCE_DIR to $TARGET_DIR"
+
+        if [ ! -d "$SOURCE_DIR" ]; then
+          echo "Error: Source directory $SOURCE_DIR not found"
+          exit 1
+        fi
+
+        if [ ! -d "$TARGET_DIR" ]; then
+          echo "Error: Target directory $TARGET_DIR not found"
+          exit 1
+        fi
+
+        # Read exclude files
+        EXCLUDE_FILES=$(cat /tmp/exclude_files.txt)
+
+        # Copy files from source to target, excluding specified files
+        for file in "$SOURCE_DIR"/*.php; do
+          filename=$(basename "$file")
+
+          # Check if file should be excluded
+          should_exclude=false
+          for exclude in $EXCLUDE_FILES; do
+            if [ "$filename" = "$exclude" ]; then
+              should_exclude=true
+              echo "  Skipping excluded file: $filename"
+              break
+            fi
+          done
+
+          if [ "$should_exclude" = false ]; then
+            echo "  Copying: $filename"
+            cp "$file" "$TARGET_DIR/$filename"
+          fi
+        done
+
+        echo "Translation sync completed successfully"
+
+        # Show what was updated
+        cd module
+        if [ -n "$(git status --porcelain Messages/)" ]; then
+          echo "Updated files:"
+          git status --porcelain Messages/
+        else
+          echo "No changes detected in translation files"
+        fi
