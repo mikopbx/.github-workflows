@@ -47,11 +47,11 @@ runs:
           type=registry,ref=ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest
         cache-to: type=registry,ref=ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:buildcache,mode=max
 
-    # Verify image is available
+    # Verify image is available (pull from registry if not loaded locally after buildx push)
     - name: Verify Docker image
       shell: bash
       run: |
         if ! docker image inspect ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest >/dev/null 2>&1; then
-          echo "Error: Docker image is not available after build/pull"
-          exit 1
+          echo "Image not found locally, pulling from registry..."
+          docker pull ghcr.io/mikopbx/modules-builder-php${{ inputs.php_version }}:latest
         fi
