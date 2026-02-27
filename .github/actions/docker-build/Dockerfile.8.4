@@ -1,0 +1,60 @@
+FROM ubuntu:jammy
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install basic requirements
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxml-xpath-perl \
+    software-properties-common \
+    gnupg \
+    git \
+    curl \
+    jq \
+    zip \
+    unzip \
+    ca-certificates \
+    apt-transport-https \
+    build-essential
+
+# Add PHP 8.4 repository (ondrej PPA includes Phalcon 5 packages)
+RUN add-apt-repository ppa:ondrej/php
+
+# Install PHP 8.4 and required extensions
+# Note: Many extensions are bundled into php8.4-common/php8.4-cli and do NOT
+# exist as separate packages (ctype, date, dom, fileinfo, filter, gettext,
+# hash, iconv, json, libxml, openssl, pcntl, pcre, pdo, phar, posix,
+# random, reflection, shmop, simplexml, sockets, tokenizer, xmlreader,
+# xmlwriter).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    php8.4 \
+    php8.4-cli \
+    php8.4-common \
+    php8.4-bcmath \
+    php8.4-bz2 \
+    php8.4-curl \
+    php8.4-gd \
+    php8.4-gmp \
+    php8.4-igbinary \
+    php8.4-ldap \
+    php8.4-mailparse \
+    php8.4-mbstring \
+    php8.4-msgpack \
+    php8.4-phalcon5 \
+    php8.4-redis \
+    php8.4-sqlite3 \
+    php8.4-xdebug \
+    php8.4-xml \
+    php8.4-yaml \
+    php8.4-zip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify PHP and extensions
+RUN php -v && php -m
+
+# Install Composer
+RUN cd /tmp \
+    && php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
+    && php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
+    && rm composer-setup.php
+
+WORKDIR /app

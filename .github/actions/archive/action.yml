@@ -30,8 +30,11 @@ runs:
           --exclude ".git/*" \
           --exclude ".github/*" \
           --exclude "tests/*" \
+          --exclude "Tests/*" \
           --exclude "*.md" \
-          --exclude "*.git*"
+          --exclude "*.git*" \
+          --exclude "phpunit.xml" \
+          --exclude "phpunit.xml.dist"
         
         # Verify archive creation
         if [ ! -f "$MODULE_RELEASE_FILENAME" ]; then
