@@ -58,6 +58,7 @@ runs:
         MODULE_PATH="/update.miko.ru/MikoPBXPlugins/${{ github.event.repository.name }}/${{ inputs.module_filename }}"
         
         SHARE_RESPONSE=$(curl -s "$SHARE_API_URL" -k -u "$OWNCLOUD_AUTH" \
+          -H "OCS-APIRequest: true" \
           -X POST --data "path=$MODULE_PATH&shareType=3")
         
         LINK=$(echo "$SHARE_RESPONSE" | grep -oP "(?<=<url>)[^<]+")
